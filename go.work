@@ -1,3 +1,6 @@
 go 1.23.2
 
-use ./consistent-hashing
+use (
+	./consistent-hashing
+	./encryption
+)
