@@ -62,12 +62,12 @@ func NewBase64JSONEncoder(enc *base64.Encoding) *Base64JSONEncoder {
 	return &Base64JSONEncoder{enc}
 }
 
-func (j Base64JSONEncoder) Serialize(nonce, cipherText []byte) ([]byte, error) {
-	if len(cipherText) < AuthTagSize {
+func (j Base64JSONEncoder) Serialize(nonce, cipherText []byte, authTagSize, nonceSize int) ([]byte, error) {
+	if len(cipherText) < authTagSize {
 		return nil, ErrTruncated
 	}
 
-	obj := newBase64JSON(nonce, cipherText[:len(cipherText)-AuthTagSize], cipherText[len(cipherText)-AuthTagSize:], j.Encoding)
+	obj := newBase64JSON(nonce, cipherText[:len(cipherText)-authTagSize], cipherText[len(cipherText)-authTagSize:], j.Encoding)
 
 	encoded, err := json.Marshal(obj)
 	if err != nil {
@@ -77,7 +77,7 @@ func (j Base64JSONEncoder) Serialize(nonce, cipherText []byte) ([]byte, error) {
 	return encoded, nil
 }
 
-func (j Base64JSONEncoder) Deserialize(encoded []byte) ([]byte, []byte, error) {
+func (j Base64JSONEncoder) Deserialize(encoded []byte, authTagSize, nonceSize int) ([]byte, []byte, error) {
 	decoded := newBase64JSON(nil, nil, nil, j.Encoding)
 
 	err := json.Unmarshal(encoded, &decoded)

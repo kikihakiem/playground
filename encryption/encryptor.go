@@ -7,11 +7,13 @@ import (
 type Cipherer interface {
 	Cipher(in []byte) (nonce, cipherText []byte, err error)
 	Decipher(nonce, cipherText []byte) (out []byte, err error)
+	AuthTagSize() int
+	NonceSize() int
 }
 
 type Serializer interface {
-	Serialize(nonce, cipherText []byte) (out []byte, err error)
-	Deserialize(in []byte) (nonce, cipherText []byte, err error)
+	Serialize(nonce, cipherText []byte, authTagSize, nonceSize int) (out []byte, err error)
+	Deserialize(in []byte, authTagSize, nonceSize int) (nonce, cipherText []byte, err error)
 }
 
 type Encryptor struct {
@@ -32,7 +34,7 @@ func (e *Encryptor) Encrypt(plainText []byte) ([]byte, error) {
 		return nil, fmt.Errorf("cipher: %w", err)
 	}
 
-	encrypted, err := e.Serialize(nonce, cipherText)
+	encrypted, err := e.Serialize(nonce, cipherText, e.AuthTagSize(), e.NonceSize())
 	if err != nil {
 		return nil, fmt.Errorf("serialize: %w", err)
 	}
@@ -41,7 +43,7 @@ func (e *Encryptor) Encrypt(plainText []byte) ([]byte, error) {
 }
 
 func (e *Encryptor) Decrypt(encryptedText []byte) ([]byte, error) {
-	nonce, cipherText, err := e.Deserialize(encryptedText)
+	nonce, cipherText, err := e.Deserialize(encryptedText, e.AuthTagSize(), e.NonceSize())
 	if err != nil {
 		return nil, fmt.Errorf("deserialize: %w", err)
 	}

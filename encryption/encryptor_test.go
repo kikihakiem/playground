@@ -25,7 +25,7 @@ var (
 
 var deterministicEncryptor = encryption.NewEncryptor(
 	encryption.NewAES256GCMCipher(
-		encryption.NewPBKDF2KeyProvider([][]byte{key1}, salt, sha256.New, encryption.PBKDF2KeySize(encryption.AES256KeySize)),
+		encryption.NewPBKDF2KeyProvider([][]byte{key1}, salt, sha256.New, encryption.PBKDF2KeySize(encryption.AES256GCMKeySize)),
 		encryption.NewDeterministicIVGenerator(sha256.New),
 	),
 	encryption.NewSimpleBase64Encoder(base64.RawStdEncoding),

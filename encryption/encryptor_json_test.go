@@ -22,7 +22,7 @@ var (
 
 var deterministicEncryptor2 = encryption.NewEncryptor(
 	encryption.NewAES256GCMCipher(
-		encryption.NewPBKDF2KeyProvider([][]byte{key1}, salt, sha256.New, encryption.PBKDF2KeySize(encryption.AES256KeySize)),
+		encryption.NewPBKDF2KeyProvider([][]byte{key1}, salt, sha256.New, encryption.PBKDF2KeySize(encryption.AES256GCMKeySize)),
 		encryption.NewDeterministicIVGenerator(sha256.New),
 	),
 	encryption.NewBase64JSONEncoder(base64.StdEncoding),
