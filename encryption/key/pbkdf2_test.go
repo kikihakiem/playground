@@ -1,3 +1,5 @@
+//go:build unit
+
 package key_test
 
 import (

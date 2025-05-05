@@ -1,3 +1,5 @@
+//go:build unit
+
 package encryption_test
 
 import (
@@ -6,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/bobobox-id/go-library/encryption"
+	"github.com/bobobox-id/go-library/encryption/encoding"
 	"github.com/bobobox-id/go-library/encryption/initvector"
 	"github.com/bobobox-id/go-library/encryption/key"
 	"github.com/stretchr/testify/assert"
@@ -27,7 +30,7 @@ var deterministicChaCha = encryption.New(
 		),
 		initvector.Deterministic(sha256.New),
 	),
-	encryption.EncoderBase64(base64.RawStdEncoding),
+	encoding.SimpleBase64(base64.RawStdEncoding),
 )
 
 var nonDeterministicChaCha = encryption.New(
@@ -40,7 +43,7 @@ var nonDeterministicChaCha = encryption.New(
 		),
 		initvector.Random(),
 	),
-	encryption.EncoderBase64(base64.RawStdEncoding),
+	encoding.SimpleBase64(base64.RawStdEncoding),
 )
 
 func TestChaCha20Poly1305DeterministicEncryptDecrypt(t *testing.T) {

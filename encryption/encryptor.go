@@ -1,6 +1,7 @@
 package encryption
 
 import (
+	"errors"
 	"fmt"
 )
 
@@ -15,6 +16,8 @@ type Serializer interface {
 	Serialize(nonce, cipherText []byte, authTagSize, nonceSize int) (out []byte, err error)
 	Deserialize(in []byte, authTagSize, nonceSize int) (nonce, cipherText []byte, err error)
 }
+
+var ErrTruncated = errors.New("truncated text")
 
 type Encryptor struct {
 	Cipherer

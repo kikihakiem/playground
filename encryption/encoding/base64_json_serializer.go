@@ -1,4 +1,4 @@
-package encryption
+package encoding
 
 import (
 	"encoding/base64"
@@ -6,17 +6,17 @@ import (
 	"fmt"
 )
 
-type Base64 struct {
+type base64Text struct {
 	payload []byte
 	encoder *base64.Encoding
 }
 
-func (b64 Base64) MarshalJSON() ([]byte, error) {
+func (b64 base64Text) MarshalJSON() ([]byte, error) {
 	str := b64.encoder.EncodeToString(b64.payload)
 	return json.Marshal(str)
 }
 
-func (b64 *Base64) UnmarshalJSON(data []byte) error {
+func (b64 *base64Text) UnmarshalJSON(data []byte) error {
 	var str string
 
 	err := json.Unmarshal(data, &str)
@@ -35,34 +35,34 @@ func (b64 *Base64) UnmarshalJSON(data []byte) error {
 }
 
 type Base64JSON struct {
-	Payload Base64 `json:"p"`
-	Header  Header `json:"h"`
+	Payload base64Text `json:"p"`
+	Header  Header     `json:"h"`
 }
 
 type Header struct {
-	AuthTag    Base64 `json:"at"`
-	InitVector Base64 `json:"iv"`
+	AuthTag    base64Text `json:"at"`
+	InitVector base64Text `json:"iv"`
 }
 
 func newBase64JSON(nonce, payload, authTag []byte, encoder *base64.Encoding) Base64JSON {
 	return Base64JSON{
-		Payload: Base64{payload: payload, encoder: encoder},
+		Payload: base64Text{payload: payload, encoder: encoder},
 		Header: Header{
-			InitVector: Base64{payload: nonce, encoder: encoder},
-			AuthTag:    Base64{payload: authTag, encoder: encoder},
+			InitVector: base64Text{payload: nonce, encoder: encoder},
+			AuthTag:    base64Text{payload: authTag, encoder: encoder},
 		},
 	}
 }
 
-type Base64JSONEncoder struct {
+type jsonBase64 struct {
 	*base64.Encoding
 }
 
-func EncoderBase64JSON(enc *base64.Encoding) *Base64JSONEncoder {
-	return &Base64JSONEncoder{enc}
+func JSONBase64(enc *base64.Encoding) *jsonBase64 {
+	return &jsonBase64{enc}
 }
 
-func (j Base64JSONEncoder) Serialize(nonce, cipherText []byte, authTagSize, nonceSize int) ([]byte, error) {
+func (j jsonBase64) Serialize(nonce, cipherText []byte, authTagSize, nonceSize int) ([]byte, error) {
 	if len(cipherText) < authTagSize {
 		return nil, ErrTruncated
 	}
@@ -77,7 +77,7 @@ func (j Base64JSONEncoder) Serialize(nonce, cipherText []byte, authTagSize, nonc
 	return encoded, nil
 }
 
-func (j Base64JSONEncoder) Deserialize(encoded []byte, authTagSize, nonceSize int) ([]byte, []byte, error) {
+func (j jsonBase64) Deserialize(encoded []byte, authTagSize, nonceSize int) ([]byte, []byte, error) {
 	decoded := newBase64JSON(nil, nil, nil, j.Encoding)
 
 	err := json.Unmarshal(encoded, &decoded)

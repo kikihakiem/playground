@@ -3,17 +3,12 @@ package encryption
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"errors"
 	"fmt"
 )
-
-type EncryptionMode int
 
 const (
 	AES256GCMKeySize = 32
 )
-
-var ErrTruncated = errors.New("truncated text")
 
 type RotatingKeyProvider interface {
 	EncryptionKey() []byte

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/bobobox-id/go-library/encryption"
+	"github.com/bobobox-id/go-library/encryption/encoding"
 	"github.com/bobobox-id/go-library/encryption/initvector"
 	"github.com/bobobox-id/go-library/encryption/key"
 	"github.com/stretchr/testify/assert"
@@ -30,7 +31,7 @@ var deterministicEncryptor = encryption.New(
 		key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, key.PBKDF2KeySize(encryption.AES256GCMKeySize)),
 		initvector.Deterministic(sha256.New),
 	),
-	encryption.EncoderBase64(base64.RawStdEncoding),
+	encoding.SimpleBase64(base64.RawStdEncoding),
 )
 
 var nonDeterministicEncryptor = encryption.New(
@@ -38,7 +39,7 @@ var nonDeterministicEncryptor = encryption.New(
 		key.PBKDF2Provider([][]byte{key2}, salt, sha1.New, key.PBKDF2Iterations(1<<16)),
 		initvector.Random(),
 	),
-	encryption.EncoderBase64(base64.RawStdEncoding),
+	encoding.SimpleBase64(base64.RawStdEncoding),
 )
 
 func TestDeterministicEncrypt(t *testing.T) {
