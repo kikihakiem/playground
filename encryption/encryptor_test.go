@@ -28,7 +28,7 @@ func TestEncryptor(t *testing.T) {
 
 	deterministicEncryptor := encryption.New(
 		cipher.AES256GCM(
-			key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, key.PBKDF2KeySize(cipher.AES256GCMKeySize)),
+			key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize),
 			initvector.Deterministic(sha256.New),
 		),
 		encoding.SimpleBase64(base64.RawStdEncoding),
@@ -36,7 +36,7 @@ func TestEncryptor(t *testing.T) {
 
 	nonDeterministicEncryptor := encryption.New(
 		cipher.AES256GCM(
-			key.PBKDF2Provider([][]byte{key2}, salt, sha1.New, key.PBKDF2Iterations(1<<16)),
+			key.PBKDF2Provider([][]byte{key2}, salt, sha1.New, 32, key.PBKDF2Iterations(1<<16)),
 			initvector.Random(),
 		),
 		encoding.SimpleBase64(base64.RawStdEncoding),
@@ -73,7 +73,7 @@ func TestEncryptor(t *testing.T) {
 	t.Run("cipher fails", func(t *testing.T) {
 		invalidCipher := encryption.New(
 			cipher.AES256GCM(
-				key.PBKDF2Provider([][]byte{}, salt, sha256.New), // empty key will fail
+				key.PBKDF2Provider([][]byte{}, salt, sha256.New, 32), // empty key will fail
 				initvector.Deterministic(sha256.New),
 			),
 			encoding.SimpleBase64(base64.RawStdEncoding),

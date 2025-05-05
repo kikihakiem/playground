@@ -8,13 +8,12 @@ import (
 )
 
 const (
-	DefaultIterations = 1 << 16 // = 65536
-	DefaultKeySize    = 32
+	pbkdf2DefaultIterations = 1 << 16 // = 65536
 )
 
 type pbkdf2Provider struct {
-	keys                [][]byte
-	iterations, keySize int
+	keys       [][]byte
+	iterations int
 }
 
 type PBKDF2KeyProviderOption func(*pbkdf2Provider)
@@ -25,18 +24,11 @@ func PBKDF2Iterations(n int) PBKDF2KeyProviderOption {
 	}
 }
 
-func PBKDF2KeySize(n int) PBKDF2KeyProviderOption {
-	return func(pkp *pbkdf2Provider) {
-		pkp.keySize = n
-	}
-}
-
 var ErrNoKey = errors.New("no key")
 
-func PBKDF2Provider(plainKeys [][]byte, salt []byte, hashFunc func() hash.Hash, options ...PBKDF2KeyProviderOption) *pbkdf2Provider {
+func PBKDF2Provider(plainKeys [][]byte, salt []byte, hashFunc func() hash.Hash, keySize int, options ...PBKDF2KeyProviderOption) *pbkdf2Provider {
 	keyProvider := &pbkdf2Provider{
-		iterations: DefaultIterations,
-		keySize:    DefaultKeySize,
+		iterations: pbkdf2DefaultIterations,
 	}
 
 	for _, option := range options {
@@ -48,7 +40,7 @@ func PBKDF2Provider(plainKeys [][]byte, salt []byte, hashFunc func() hash.Hash, 
 			plainKey,
 			salt,
 			keyProvider.iterations,
-			keyProvider.keySize,
+			keySize,
 			hashFunc,
 		))
 	}

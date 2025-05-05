@@ -23,7 +23,7 @@ func TestAES256GCM(t *testing.T) {
 
 	t.Run("truncated nonce", func(t *testing.T) {
 		cipher := cipher.AES256GCM(
-			key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, key.PBKDF2KeySize(cipher.AES256GCMKeySize)),
+			key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize),
 			initvector.Deterministic(sha256.New),
 		)
 
@@ -38,7 +38,7 @@ func TestAES256GCM(t *testing.T) {
 		// encrypt secret with the old key
 		keys := [][]byte{key1}
 		oldCipher := cipher.AES256GCM(
-			key.PBKDF2Provider(keys, salt, sha256.New, key.PBKDF2KeySize(cipher.AES256GCMKeySize)),
+			key.PBKDF2Provider(keys, salt, sha256.New, cipher.AES256GCMKeySize),
 			initvector.Deterministic(sha256.New),
 		)
 		nonce1, cipherText1, err := oldCipher.Cipher(plainText)
@@ -47,7 +47,7 @@ func TestAES256GCM(t *testing.T) {
 		// rotate key
 		keys = prepend(keys, key2)
 		newCipher := cipher.AES256GCM(
-			key.PBKDF2Provider(keys, salt, sha256.New, key.PBKDF2KeySize(cipher.AES256GCMKeySize)),
+			key.PBKDF2Provider(keys, salt, sha256.New, cipher.AES256GCMKeySize),
 			initvector.Deterministic(sha256.New),
 		)
 
@@ -66,7 +66,7 @@ func TestAES256GCM(t *testing.T) {
 	t.Run("decrypt with wrong key", func(t *testing.T) {
 		plainText := []byte("secret")
 		cipher1 := cipher.AES256GCM(
-			key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, key.PBKDF2KeySize(cipher.AES256GCMKeySize)),
+			key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize),
 			initvector.Deterministic(sha256.New),
 		)
 		nonce, cipherText, err := cipher1.Cipher(plainText)
@@ -74,7 +74,7 @@ func TestAES256GCM(t *testing.T) {
 
 		// wrong key
 		cipherWithWrongKey := cipher.AES256GCM(
-			key.PBKDF2Provider([][]byte{key2}, salt, sha256.New, key.PBKDF2KeySize(cipher.AES256GCMKeySize)),
+			key.PBKDF2Provider([][]byte{key2}, salt, sha256.New, cipher.AES256GCMKeySize),
 			initvector.Deterministic(sha256.New),
 		)
 		_, err = cipherWithWrongKey.Decipher(nonce, cipherText)
@@ -88,7 +88,7 @@ func TestAES256GCM(t *testing.T) {
 
 	t.Run("standard tag and nonce size", func(t *testing.T) {
 		cipher := cipher.AES256GCM(
-			key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, key.PBKDF2KeySize(cipher.AES256GCMKeySize)),
+			key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize),
 			initvector.Deterministic(sha256.New),
 		)
 
@@ -104,7 +104,7 @@ func TestAES256GCM(t *testing.T) {
 
 	t.Run("no key", func(t *testing.T) {
 		cipher := cipher.AES256GCM(
-			key.PBKDF2Provider([][]byte{}, salt, sha256.New),
+			key.PBKDF2Provider([][]byte{}, salt, sha256.New, cipher.AES256GCMKeySize),
 			initvector.Deterministic(sha256.New),
 		)
 

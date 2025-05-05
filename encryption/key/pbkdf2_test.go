@@ -20,7 +20,7 @@ func TestPBKDF2Provider(t *testing.T) {
 			[][]byte{plainKey1},
 			salt,
 			sha256.New,
-			PBKDF2KeySize(customSize),
+			customSize,
 		)
 
 		// Key should match specified size
@@ -35,6 +35,7 @@ func TestPBKDF2Provider(t *testing.T) {
 			[][]byte{plainKey1},
 			salt,
 			sha256.New,
+			32,
 			PBKDF2Iterations(1000),
 		)
 
@@ -42,6 +43,7 @@ func TestPBKDF2Provider(t *testing.T) {
 			[][]byte{plainKey1},
 			salt,
 			sha256.New,
+			32,
 			PBKDF2Iterations(2000),
 		)
 
@@ -61,7 +63,7 @@ func TestPBKDF2Provider(t *testing.T) {
 			[][]byte{plainKey1},
 			salt,
 			sha256.New,
-			PBKDF2KeySize(customSize),
+			customSize,
 			PBKDF2Iterations(customIterations),
 		)
 
@@ -76,6 +78,7 @@ func TestPBKDF2Provider(t *testing.T) {
 			[][]byte{plainKey1, plainKey2},
 			salt,
 			sha256.New,
+			32,
 		)
 
 		// Should have 2 decryption keys
@@ -97,12 +100,14 @@ func TestPBKDF2Provider(t *testing.T) {
 			[][]byte{plainKey1},
 			salt,
 			sha256.New,
+			32,
 		)
 
 		provider2 := PBKDF2Provider(
 			[][]byte{plainKey1},
 			salt,
 			sha256.New,
+			32,
 		)
 
 		// Same input should produce same key

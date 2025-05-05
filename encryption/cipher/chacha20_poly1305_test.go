@@ -28,7 +28,7 @@ func TestChaCha20Poly1305(t *testing.T) {
 				[][]byte{chachaKey1},
 				chachaSalt,
 				sha256.New,
-				key.PBKDF2KeySize(cipher.ChaCha20Poly1305KeySize),
+				cipher.ChaCha20Poly1305KeySize,
 			),
 			initvector.Deterministic(sha256.New),
 		),
@@ -41,7 +41,7 @@ func TestChaCha20Poly1305(t *testing.T) {
 				[][]byte{chachaKey1},
 				chachaSalt,
 				sha256.New,
-				key.PBKDF2KeySize(cipher.ChaCha20Poly1305KeySize),
+				cipher.ChaCha20Poly1305KeySize,
 			),
 			initvector.Random(),
 		),
@@ -99,7 +99,7 @@ func TestChaCha20Poly1305(t *testing.T) {
 
 	t.Run("no key", func(t *testing.T) {
 		cipher := cipher.ChaCha20Poly1305(
-			key.PBKDF2Provider([][]byte{}, chachaSalt, sha256.New),
+			key.PBKDF2Provider([][]byte{}, chachaSalt, sha256.New, cipher.ChaCha20Poly1305KeySize),
 			initvector.Deterministic(sha256.New),
 		)
 
