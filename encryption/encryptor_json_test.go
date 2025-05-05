@@ -16,54 +16,58 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var (
-	plainText3     = []byte("predovic.eugena.dc@bobobox.com")
-	encryptedText3 = []byte(`{"p":"lEMctSYVzhJvYJZKTzSsStfbqugE8VTtPj6wBw1x","h":{"iv":"E9qSpdOfUMtrveT/","at":"QaBeEg/rnKGEjzi1sciVoQ=="}}`)
+func TestEncryptorJSON(t *testing.T) {
+	salt := []byte("IxZVjMFODIeBCscvZbMEcT2ZESgWEmW1")
+	key1 := []byte("MFYuo94qPvLiGC15cn9IzFZ8z1IAB344")
+	key2 := []byte("GgrHdjRRMUdJsZIoDYjBI79kxi2thh3F")
 
-	plainText4     = []byte("Jl. Setapak Gg. Buntu")
-	encryptedText4 = []byte(`{"p":"HKq7TRehRUPPT9PGzYE1gYjeuqGE","h":{"iv":"Cd8BkTwsUs190Xq3","at":"xfapwm/78DuPefLSuWWYsA=="}}`)
-)
+	plainText3 := []byte("predovic.eugena.dc@bobobox.com")
+	encryptedText3 := []byte(`{"p":"lEMctSYVzhJvYJZKTzSsStfbqugE8VTtPj6wBw1x","h":{"iv":"E9qSpdOfUMtrveT/","at":"QaBeEg/rnKGEjzi1sciVoQ=="}}`)
 
-var deterministicEncryptor2 = encryption.New(
-	cipher.AES256GCM(
-		key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, key.PBKDF2KeySize(cipher.AES256GCMKeySize)),
-		initvector.Deterministic(sha256.New),
-	),
-	encoding.JSONBase64(base64.StdEncoding),
-)
+	plainText4 := []byte("Jl. Setapak Gg. Buntu")
+	encryptedText4 := []byte(`{"p":"HKq7TRehRUPPT9PGzYE1gYjeuqGE","h":{"iv":"Cd8BkTwsUs190Xq3","at":"xfapwm/78DuPefLSuWWYsA=="}}`)
 
-var nonDeterministicEncryptor2 = encryption.New(
-	cipher.AES256GCM(
-		key.PBKDF2Provider([][]byte{key2}, salt, sha1.New, key.PBKDF2Iterations(1<<16)),
-		initvector.Random(),
-	),
-	encoding.JSONBase64(base64.StdEncoding),
-)
+	deterministicEncryptor := encryption.New(
+		cipher.AES256GCM(
+			key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, key.PBKDF2KeySize(cipher.AES256GCMKeySize)),
+			initvector.Deterministic(sha256.New),
+		),
+		encoding.JSONBase64(base64.StdEncoding),
+	)
 
-func TestDeterministicEncrypt2(t *testing.T) {
-	encrypted, err := deterministicEncryptor2.Encrypt(plainText3)
-	assert.NoError(t, err)
-	assert.JSONEq(t, string(encryptedText3), string(encrypted))
-}
+	nonDeterministicEncryptor := encryption.New(
+		cipher.AES256GCM(
+			key.PBKDF2Provider([][]byte{key2}, salt, sha1.New, key.PBKDF2Iterations(1<<16)),
+			initvector.Random(),
+		),
+		encoding.JSONBase64(base64.StdEncoding),
+	)
 
-func TestDeterministicDecrypt2(t *testing.T) {
-	decrypted, err := deterministicEncryptor2.Decrypt(encryptedText3)
-	assert.NoError(t, err)
-	assert.Equal(t, plainText3, decrypted)
-}
+	t.Run("deterministic encrypt", func(t *testing.T) {
+		encrypted, err := deterministicEncryptor.Encrypt(plainText3)
+		assert.NoError(t, err)
+		assert.JSONEq(t, string(encryptedText3), string(encrypted))
+	})
 
-func TestNonDeterministicEncryptDecrypt2(t *testing.T) {
-	encrypted, err := nonDeterministicEncryptor2.Encrypt(plainText4)
-	assert.NoError(t, err)
+	t.Run("deterministic decrypt", func(t *testing.T) {
+		decrypted, err := deterministicEncryptor.Decrypt(encryptedText3)
+		assert.NoError(t, err)
+		assert.Equal(t, plainText3, decrypted)
+	})
 
-	// we cannot expect the encrypted text is fixed, so we assert the decryption result instead
-	decrypted, err := nonDeterministicEncryptor2.Decrypt([]byte(encrypted))
-	assert.NoError(t, err)
-	assert.Equal(t, plainText4, decrypted)
-}
+	t.Run("non-deterministic encrypt/decrypt", func(t *testing.T) {
+		encrypted, err := nonDeterministicEncryptor.Encrypt(plainText4)
+		assert.NoError(t, err)
 
-func TestNonDeterministicDecrypt2(t *testing.T) {
-	decrypted, err := nonDeterministicEncryptor2.Decrypt(encryptedText4)
-	assert.NoError(t, err)
-	assert.Equal(t, plainText4, decrypted)
+		// we cannot expect the encrypted text is fixed, so we assert the decryption result instead
+		decrypted, err := nonDeterministicEncryptor.Decrypt([]byte(encrypted))
+		assert.NoError(t, err)
+		assert.Equal(t, plainText4, decrypted)
+	})
+
+	t.Run("non-deterministic decrypt", func(t *testing.T) {
+		decrypted, err := nonDeterministicEncryptor.Decrypt(encryptedText4)
+		assert.NoError(t, err)
+		assert.Equal(t, plainText4, decrypted)
+	})
 }

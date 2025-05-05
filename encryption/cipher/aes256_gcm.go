@@ -27,7 +27,10 @@ func AES256GCM(keyProvider rotatingKeyProvider, ivGenerator initVectorer) *aes25
 }
 
 func (c *aes256GCM) Cipher(plainText []byte) ([]byte, []byte, error) {
-	encryptionKey := c.EncryptionKey()
+	encryptionKey, err := c.EncryptionKey()
+	if err != nil {
+		return nil, nil, fmt.Errorf("get encryption key: %w", err)
+	}
 
 	nonce, err := c.InitVector(encryptionKey, plainText, c.nonceSize)
 	if err != nil {
@@ -54,14 +57,19 @@ func (c *aes256GCM) Decipher(nonce, cipherText []byte) (deciphered []byte, err e
 		return nil, ErrTruncated
 	}
 
-	for _, key := range c.DecryptionKeys() {
+	decryptionKeys, err := c.DecryptionKeys()
+	if err != nil {
+		return nil, fmt.Errorf("get decryption keys: %w", err)
+	}
+
+	for _, key := range decryptionKeys {
 		deciphered, err = c.decipher(key, nonce, cipherText)
 		if err == nil {
 			return
 		}
 	}
 
-	return
+	return nil, fmt.Errorf("decryption failed")
 }
 
 func (c *aes256GCM) decipher(decryptionKey, nonce, cipherText []byte) ([]byte, error) {

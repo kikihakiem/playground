@@ -24,7 +24,9 @@ func TestPBKDF2Provider(t *testing.T) {
 		)
 
 		// Key should match specified size
-		assert.Len(t, provider.EncryptionKey(), customSize)
+		encryptionKey, err := provider.EncryptionKey()
+		assert.NoError(t, err)
+		assert.Len(t, encryptionKey, customSize)
 	})
 
 	t.Run("custom iterations", func(t *testing.T) {
@@ -44,7 +46,11 @@ func TestPBKDF2Provider(t *testing.T) {
 		)
 
 		// Different iterations should produce different keys
-		assert.NotEqual(t, provider1.EncryptionKey(), provider2.EncryptionKey())
+		encryptionKey1, err := provider1.EncryptionKey()
+		assert.NoError(t, err)
+		encryptionKey2, err := provider2.EncryptionKey()
+		assert.NoError(t, err)
+		assert.NotEqual(t, encryptionKey1, encryptionKey2)
 	})
 
 	t.Run("multiple options", func(t *testing.T) {
@@ -60,7 +66,9 @@ func TestPBKDF2Provider(t *testing.T) {
 		)
 
 		// Key should match specified size
-		assert.Len(t, provider.EncryptionKey(), customSize)
+		encryptionKey, err := provider.EncryptionKey()
+		assert.NoError(t, err)
+		assert.Len(t, encryptionKey, customSize)
 	})
 
 	t.Run("multiple keys", func(t *testing.T) {
@@ -71,11 +79,14 @@ func TestPBKDF2Provider(t *testing.T) {
 		)
 
 		// Should have 2 decryption keys
-		decryptionKeys := provider.DecryptionKeys()
+		decryptionKeys, err := provider.DecryptionKeys()
+		assert.NoError(t, err)
 		assert.Len(t, decryptionKeys, 2)
 
 		// Encryption key should be the first key
-		assert.Equal(t, decryptionKeys[0], provider.EncryptionKey())
+		encryptionKey, err := provider.EncryptionKey()
+		assert.NoError(t, err)
+		assert.Equal(t, decryptionKeys[0], encryptionKey)
 
 		// Keys should be different
 		assert.NotEqual(t, decryptionKeys[0], decryptionKeys[1])
@@ -95,6 +106,10 @@ func TestPBKDF2Provider(t *testing.T) {
 		)
 
 		// Same input should produce same key
-		assert.Equal(t, provider1.EncryptionKey(), provider2.EncryptionKey())
+		encryptionKey1, err := provider1.EncryptionKey()
+		assert.NoError(t, err)
+		encryptionKey2, err := provider2.EncryptionKey()
+		assert.NoError(t, err)
+		assert.Equal(t, encryptionKey1, encryptionKey2)
 	})
 }

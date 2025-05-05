@@ -27,7 +27,10 @@ func ChaCha20Poly1305(keyProvider rotatingKeyProvider, ivGenerator initVectorer)
 }
 
 func (c *chaCha20Poly1305) Cipher(plainText []byte) ([]byte, []byte, error) {
-	encryptionKey := c.EncryptionKey()
+	encryptionKey, err := c.EncryptionKey()
+	if err != nil {
+		return nil, nil, fmt.Errorf("get encryption key: %w", err)
+	}
 
 	nonce, err := c.InitVector(encryptionKey, plainText, c.nonceSize)
 	if err != nil {
@@ -40,6 +43,7 @@ func (c *chaCha20Poly1305) Cipher(plainText []byte) ([]byte, []byte, error) {
 	}
 
 	cipherText := aead.Seal(nil, nonce, plainText, nil)
+
 	return nonce, cipherText, nil
 }
 
@@ -48,7 +52,12 @@ func (c *chaCha20Poly1305) Decipher(nonce, cipherText []byte) ([]byte, error) {
 		return nil, fmt.Errorf("invalid nonce size: got %d, want %d", len(nonce), c.nonceSize)
 	}
 
-	for _, key := range c.DecryptionKeys() {
+	decryptionKeys, err := c.DecryptionKeys()
+	if err != nil {
+		return nil, fmt.Errorf("get decryption keys: %w", err)
+	}
+
+	for _, key := range decryptionKeys {
 		aead, err := chacha20poly1305.New(key)
 		if err != nil {
 			continue

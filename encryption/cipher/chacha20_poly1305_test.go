@@ -96,4 +96,17 @@ func TestChaCha20Poly1305(t *testing.T) {
 		_, err = nonDeterministicChaCha.Decrypt(corrupted)
 		assert.Error(t, err)
 	})
+
+	t.Run("no key", func(t *testing.T) {
+		cipher := cipher.ChaCha20Poly1305(
+			key.PBKDF2Provider([][]byte{}, chachaSalt, sha256.New),
+			initvector.Deterministic(sha256.New),
+		)
+
+		_, _, err := cipher.Cipher([]byte("secret"))
+		assert.ErrorIs(t, err, key.ErrNoKey)
+
+		_, err = cipher.Decipher(make([]byte, 12), make([]byte, 16))
+		assert.ErrorIs(t, err, key.ErrNoKey)
+	})
 }

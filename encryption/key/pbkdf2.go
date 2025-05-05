@@ -1,6 +1,7 @@
 package key
 
 import (
+	"errors"
 	"hash"
 
 	"golang.org/x/crypto/pbkdf2"
@@ -30,6 +31,8 @@ func PBKDF2KeySize(n int) PBKDF2KeyProviderOption {
 	}
 }
 
+var ErrNoKey = errors.New("no key")
+
 func PBKDF2Provider(plainKeys [][]byte, salt []byte, hashFunc func() hash.Hash, options ...PBKDF2KeyProviderOption) *pbkdf2Provider {
 	keyProvider := &pbkdf2Provider{
 		iterations: DefaultIterations,
@@ -53,10 +56,18 @@ func PBKDF2Provider(plainKeys [][]byte, salt []byte, hashFunc func() hash.Hash, 
 	return keyProvider
 }
 
-func (kp *pbkdf2Provider) EncryptionKey() []byte {
-	return kp.keys[0] // always encrypt using the latest key
+func (kp *pbkdf2Provider) EncryptionKey() ([]byte, error) {
+	if len(kp.keys) == 0 {
+		return nil, ErrNoKey
+	}
+
+	return kp.keys[0], nil // always encrypt using the latest key
 }
 
-func (kp *pbkdf2Provider) DecryptionKeys() [][]byte {
-	return kp.keys
+func (kp *pbkdf2Provider) DecryptionKeys() ([][]byte, error) {
+	if len(kp.keys) == 0 {
+		return nil, ErrNoKey
+	}
+
+	return kp.keys, nil
 }

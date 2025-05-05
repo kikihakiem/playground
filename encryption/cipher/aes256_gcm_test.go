@@ -101,6 +101,19 @@ func TestAES256GCM(t *testing.T) {
 		assert.Equal(t, aesgcm.Overhead(), cipher.AuthTagSize())
 		assert.Equal(t, aesgcm.NonceSize(), cipher.NonceSize())
 	})
+
+	t.Run("no key", func(t *testing.T) {
+		cipher := cipher.AES256GCM(
+			key.PBKDF2Provider([][]byte{}, salt, sha256.New),
+			initvector.Deterministic(sha256.New),
+		)
+
+		_, _, err := cipher.Cipher([]byte("secret"))
+		assert.ErrorIs(t, err, key.ErrNoKey)
+
+		_, err = cipher.Decipher(make([]byte, 12), make([]byte, 16))
+		assert.ErrorIs(t, err, key.ErrNoKey)
+	})
 }
 
 // defined this function for clarity
