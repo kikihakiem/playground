@@ -13,7 +13,10 @@ A flexible and secure text encryption library for Go with configurable ciphers, 
   - PBKDF2
   - Scrypt
   - Argon2id
-- 📦 Multiple serialization formats (Base64, JSON)
+- 📦 Multiple serialization formats:
+  - Base64
+  - Base64 JSON (Rails compatible format)
+  - Base85
 - 🚂 Rails ActiveRecord encryption compatibility
 - 🛠️ Extensible architecture for custom implementations
 
@@ -151,7 +154,8 @@ The cipher component handles the core encryption/decryption operations:
 The encoder component handles the serialization of encrypted data:
 
 - **Base64**: Simple base64 encoding
-- **JSON**: Base64-encoded JSON format with metadata
+- **Base64 JSON**: Base64-encoded JSON format with metadata
+- **Base85**: Most efficient format, but not URL-safe
 
 ## Security Considerations
 
@@ -162,6 +166,7 @@ The encoder component handles the serialization of encrypted data:
   - Argon2id: Use recommended parameters from the Argon2 specification
 - Use random IVs unless you specifically need deterministic encryption
 - Rotate keys periodically and maintain a history of old keys for decryption
+- When rotating keys, re-encrypt all existing data with the new key and remove old keys as soon as possible
 - Store keys securely using a key management service or hardware security module
 
 ## Contributing
