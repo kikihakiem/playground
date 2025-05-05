@@ -7,6 +7,7 @@ import (
 
 	"github.com/bobobox-id/go-library/encryption"
 	"github.com/bobobox-id/go-library/encryption/initvector"
+	"github.com/bobobox-id/go-library/encryption/key"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -18,11 +19,11 @@ var (
 
 var deterministicChaCha = encryption.New(
 	encryption.NewChaCha20Poly1305Cipher(
-		encryption.KeyProviderPBKDF2(
+		key.PBKDF2Provider(
 			[][]byte{chachaKey1},
 			chachaSalt,
 			sha256.New,
-			encryption.PBKDF2KeySize(encryption.ChaCha20Poly1305KeySize),
+			key.PBKDF2KeySize(encryption.ChaCha20Poly1305KeySize),
 		),
 		initvector.Deterministic(sha256.New),
 	),
@@ -31,11 +32,11 @@ var deterministicChaCha = encryption.New(
 
 var nonDeterministicChaCha = encryption.New(
 	encryption.NewChaCha20Poly1305Cipher(
-		encryption.KeyProviderPBKDF2(
+		key.PBKDF2Provider(
 			[][]byte{chachaKey1},
 			chachaSalt,
 			sha256.New,
-			encryption.PBKDF2KeySize(encryption.ChaCha20Poly1305KeySize),
+			key.PBKDF2KeySize(encryption.ChaCha20Poly1305KeySize),
 		),
 		initvector.Random(),
 	),
