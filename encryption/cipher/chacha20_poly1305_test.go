@@ -7,11 +7,11 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"github.com/bobobox-id/go-library/encryption"
-	"github.com/bobobox-id/go-library/encryption/cipher"
-	"github.com/bobobox-id/go-library/encryption/encoding"
-	"github.com/bobobox-id/go-library/encryption/initvector"
-	"github.com/bobobox-id/go-library/encryption/key"
+	"github.com/kikihakiem/playground/encryption"
+	"github.com/kikihakiem/playground/encryption/cipher"
+	"github.com/kikihakiem/playground/encryption/encoding"
+	"github.com/kikihakiem/playground/encryption/initvector"
+	"github.com/kikihakiem/playground/encryption/key"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -106,5 +106,27 @@ func TestChaCha20Poly1305(t *testing.T) {
 
 		_, err = cipher.Decipher(make([]byte, 12), make([]byte, 16))
 		assert.ErrorIs(t, err, key.ErrNoKey)
+	})
+	t.Run("decrypt with wrong key", func(t *testing.T) {
+		plainText := []byte("secret")
+		cipher1 := cipher.ChaCha20Poly1305(
+			key.PBKDF2Provider([][]byte{chachaKey1}, chachaSalt, sha256.New, cipher.ChaCha20Poly1305KeySize),
+			initvector.Deterministic(sha256.New),
+		)
+		nonce, cipherText, err := cipher1.Cipher(plainText)
+		assert.NoError(t, err)
+
+		// wrong key
+		cipherWithWrongKey := cipher.ChaCha20Poly1305(
+			key.PBKDF2Provider([][]byte{[]byte("wrong key")}, chachaSalt, sha256.New, cipher.ChaCha20Poly1305KeySize),
+			initvector.Deterministic(sha256.New),
+		)
+		_, err = cipherWithWrongKey.Decipher(nonce, cipherText)
+		assert.ErrorContains(t, err, "failed")
+
+		// tampered cipher text
+		cipherText[13] = 65
+		_, err = cipher1.Decipher(nonce, cipherText)
+		assert.ErrorContains(t, err, "failed")
 	})
 }

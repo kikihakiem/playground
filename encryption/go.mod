@@ -1,4 +1,4 @@
-module github.com/bobobox-id/go-library/encryption
+module github.com/kikihakiem/playground/encryption
 
 go 1.20
 

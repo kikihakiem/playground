@@ -8,9 +8,9 @@ import (
 	"crypto/sha256"
 	"testing"
 
-	"github.com/bobobox-id/go-library/encryption/cipher"
-	"github.com/bobobox-id/go-library/encryption/initvector"
-	"github.com/bobobox-id/go-library/encryption/key"
+	"github.com/kikihakiem/playground/encryption/cipher"
+	"github.com/kikihakiem/playground/encryption/initvector"
+	"github.com/kikihakiem/playground/encryption/key"
 	"github.com/stretchr/testify/assert"
 )
 

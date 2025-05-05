@@ -6,7 +6,7 @@ import (
 	"crypto/sha256"
 	"testing"
 
-	"github.com/bobobox-id/go-library/encryption/initvector"
+	"github.com/kikihakiem/playground/encryption/initvector"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -6,7 +6,7 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"github.com/bobobox-id/go-library/encryption/encoding"
+	"github.com/kikihakiem/playground/encryption/encoding"
 	"github.com/stretchr/testify/assert"
 )
 

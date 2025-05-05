@@ -8,11 +8,11 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"github.com/bobobox-id/go-library/encryption"
-	"github.com/bobobox-id/go-library/encryption/cipher"
-	"github.com/bobobox-id/go-library/encryption/encoding"
-	"github.com/bobobox-id/go-library/encryption/initvector"
-	"github.com/bobobox-id/go-library/encryption/key"
+	"github.com/kikihakiem/playground/encryption"
+	"github.com/kikihakiem/playground/encryption/cipher"
+	"github.com/kikihakiem/playground/encryption/encoding"
+	"github.com/kikihakiem/playground/encryption/initvector"
+	"github.com/kikihakiem/playground/encryption/key"
 	"github.com/stretchr/testify/assert"
 )
 
