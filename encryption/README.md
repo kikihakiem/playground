@@ -4,9 +4,15 @@ A flexible and secure text encryption library for Go with configurable ciphers, 
 
 ## Features
 
-- 🔒 AES-256-GCM encryption for strong security
+- 🔒 Multiple encryption algorithms:
+  - AES-256-GCM (default)
+  - ChaCha20-Poly1305
+  - XChaCha20-Poly1305
 - 🔄 Configurable IV generation (deterministic or random)
-- 🔑 Key rotation support using PBKDF2
+- 🔑 Multiple key derivation functions:
+  - PBKDF2 (default)
+  - Scrypt
+  - Argon2id
 - 📦 Multiple serialization formats (Base64, JSON)
 - 🚂 Rails ActiveRecord encryption compatibility
 - 🛠️ Extensible architecture for custom implementations
@@ -37,7 +43,7 @@ func main() {
     salt := []byte("your-salt")      // Replace with your salt
     plainText := []byte("Hello, World!")
 
-    // Create a deterministic encryptor
+    // Create a deterministic encryptor with AES-256-GCM
     deterministicEncryptor := encryption.NewEncryptor(
         encryption.NewAES256GCMCipher(
             encryption.NewPBKDF2KeyProvider(
@@ -65,6 +71,43 @@ func main() {
 
     fmt.Printf("Original: %s\nDecrypted: %s\n", plainText, decrypted)
 }
+```
+
+### Using Scrypt for Key Derivation
+
+```go
+// Create an encryptor using Scrypt for key derivation
+scryptEncryptor := encryption.NewEncryptor(
+    encryption.NewAES256GCMCipher(
+        encryption.NewScryptKeyProvider(
+            [][]byte{key},
+            salt,
+            32, // key length
+            encryption.ScryptN(1<<15), // CPU/memory cost
+            encryption.ScryptR(8),     // block size
+            encryption.ScryptP(1),     // parallelization
+        ),
+        encryption.NewRandomIVGenerator(),
+    ),
+    encryption.NewSimpleBase64Encoder(base64.RawStdEncoding),
+)
+```
+
+### Using ChaCha20-Poly1305
+
+```go
+// Create an encryptor using ChaCha20-Poly1305
+chachaEncryptor := encryption.NewEncryptor(
+    encryption.NewChaCha20Poly1305Cipher(
+        encryption.NewPBKDF2KeyProvider(
+            [][]byte{key},
+            salt,
+            sha256.New,
+        ),
+        encryption.NewRandomIVGenerator(),
+    ),
+    encryption.NewSimpleBase64Encoder(base64.RawStdEncoding),
+)
 ```
 
 ### Rails ActiveRecord Compatibility
@@ -97,43 +140,28 @@ The cipher component handles the core encryption/decryption operations:
   - `DeterministicIV`: Generates consistent IVs for the same input
   - `RandomIV`: Generates cryptographically secure random IVs
 - **Key Provider**: Manages encryption keys and rotation
-  - Uses PBKDF2 for key derivation with configurable iterations and hash function
-  - Supports multiple keys for rotation:
-    - First key in array is used for encryption
-    - All keys are tried in order during decryption
-    - Allows seamless migration by adding new key at start of array
-    - Old data remains decryptable with previous keys
-    - After migrating data to new key, old keys can be removed
-  - Keys must be ordered from newest (index 0) to oldest
-  - Recommended rotation process:
-    1. Add new key at start of key array
-    2. Deploy new key array to all services
-    3. Re-encrypt data with new key (background job)
-    4. Remove old keys after migration complete
+  - PBKDF2: Configurable iterations and hash function
+  - Scrypt: Configurable CPU/memory cost, block size, and parallelization
+  - Argon2id: Configurable memory size, iterations, and parallelism
 
-### 2. Serializer
+### 2. Encoder
 
-Handles the conversion of binary ciphertext to various formats:
+The encoder component handles the serialization of encrypted data:
 
-- **Simple Base64**: Basic Base64 encoding
-- **JSON Base64**: Structured format compatible with Rails
-- Custom serializers can be implemented by satisfying the `Serializer` interface
+- **Base64**: Simple base64 encoding
+- **JSON**: Base64-encoded JSON format with metadata
+- **Custom**: Implement your own encoder
 
 ## Security Considerations
 
-1. **Key Management**
-   - Store keys securely (e.g., using a key management service)
-   - Rotate keys regularly
-   - Keep only the last 2 keys for rotation
-   - Remove old keys after migration
-
-2. **IV Generation**
-   - Use `RandomIV` for maximum security
-   - Use `DeterministicIV` only when deterministic encryption is required
-
-3. **Key Size**
-   - Default key size is 256 bits (AES-256)
-   - Do not use smaller key sizes
+- Always use cryptographically secure random values for keys and salts
+- Choose appropriate parameters for your key derivation function:
+  - PBKDF2: Use at least 100,000 iterations
+  - Scrypt: N=2^15, r=8, p=1 is a good starting point
+  - Argon2id: Use recommended parameters from the Argon2 specification
+- Use random IVs unless you specifically need deterministic encryption
+- Rotate keys periodically and maintain a history of old keys for decryption
+- Store keys securely using a key management service or hardware security module
 
 ## Contributing
 
