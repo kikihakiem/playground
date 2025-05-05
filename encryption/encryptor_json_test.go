@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/bobobox-id/go-library/encryption"
+	"github.com/bobobox-id/go-library/encryption/initvector"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -20,20 +21,20 @@ var (
 	encryptedText4 = []byte(`{"p":"HKq7TRehRUPPT9PGzYE1gYjeuqGE","h":{"iv":"Cd8BkTwsUs190Xq3","at":"xfapwm/78DuPefLSuWWYsA=="}}`)
 )
 
-var deterministicEncryptor2 = encryption.NewEncryptor(
-	encryption.NewAES256GCMCipher(
-		encryption.NewPBKDF2KeyProvider([][]byte{key1}, salt, sha256.New, encryption.PBKDF2KeySize(encryption.AES256GCMKeySize)),
-		encryption.NewDeterministicIVGenerator(sha256.New),
+var deterministicEncryptor2 = encryption.New(
+	encryption.CipherAES256GCM(
+		encryption.KeyProviderPBKDF2([][]byte{key1}, salt, sha256.New, encryption.PBKDF2KeySize(encryption.AES256GCMKeySize)),
+		initvector.Deterministic(sha256.New),
 	),
-	encryption.NewBase64JSONEncoder(base64.StdEncoding),
+	encryption.EncoderBase64JSON(base64.StdEncoding),
 )
 
-var nonDeterministicEncryptor2 = encryption.NewEncryptor(
-	encryption.NewAES256GCMCipher(
-		encryption.NewPBKDF2KeyProvider([][]byte{key2}, salt, sha1.New, encryption.PBKDF2Iterations(1<<16)),
-		encryption.NewRandomIVGenerator(),
+var nonDeterministicEncryptor2 = encryption.New(
+	encryption.CipherAES256GCM(
+		encryption.KeyProviderPBKDF2([][]byte{key2}, salt, sha1.New, encryption.PBKDF2Iterations(1<<16)),
+		initvector.Random(),
 	),
-	encryption.NewBase64JSONEncoder(base64.StdEncoding),
+	encryption.EncoderBase64JSON(base64.StdEncoding),
 )
 
 func TestDeterministicEncrypt2(t *testing.T) {

@@ -58,7 +58,7 @@ type Base64JSONEncoder struct {
 	*base64.Encoding
 }
 
-func NewBase64JSONEncoder(enc *base64.Encoding) *Base64JSONEncoder {
+func EncoderBase64JSON(enc *base64.Encoding) *Base64JSONEncoder {
 	return &Base64JSONEncoder{enc}
 }
 

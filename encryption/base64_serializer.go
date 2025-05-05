@@ -9,7 +9,7 @@ type SimpleBase64 struct {
 	*base64.Encoding
 }
 
-func NewSimpleBase64Encoder(enc *base64.Encoding) *SimpleBase64 {
+func EncoderBase64(enc *base64.Encoding) *SimpleBase64 {
 	return &SimpleBase64{enc}
 }
 

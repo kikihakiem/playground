@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/bobobox-id/go-library/encryption"
+	"github.com/bobobox-id/go-library/encryption/initvector"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -15,30 +16,30 @@ var (
 	chachaPlainText = []byte("Hello ChaCha20-Poly1305!")
 )
 
-var deterministicChaCha = encryption.NewEncryptor(
+var deterministicChaCha = encryption.New(
 	encryption.NewChaCha20Poly1305Cipher(
-		encryption.NewPBKDF2KeyProvider(
+		encryption.KeyProviderPBKDF2(
 			[][]byte{chachaKey1},
 			chachaSalt,
 			sha256.New,
 			encryption.PBKDF2KeySize(encryption.ChaCha20Poly1305KeySize),
 		),
-		encryption.NewDeterministicIVGenerator(sha256.New),
+		initvector.Deterministic(sha256.New),
 	),
-	encryption.NewSimpleBase64Encoder(base64.RawStdEncoding),
+	encryption.EncoderBase64(base64.RawStdEncoding),
 )
 
-var nonDeterministicChaCha = encryption.NewEncryptor(
+var nonDeterministicChaCha = encryption.New(
 	encryption.NewChaCha20Poly1305Cipher(
-		encryption.NewPBKDF2KeyProvider(
+		encryption.KeyProviderPBKDF2(
 			[][]byte{chachaKey1},
 			chachaSalt,
 			sha256.New,
 			encryption.PBKDF2KeySize(encryption.ChaCha20Poly1305KeySize),
 		),
-		encryption.NewRandomIVGenerator(),
+		initvector.Random(),
 	),
-	encryption.NewSimpleBase64Encoder(base64.RawStdEncoding),
+	encryption.EncoderBase64(base64.RawStdEncoding),
 )
 
 func TestChaCha20Poly1305DeterministicEncryptDecrypt(t *testing.T) {

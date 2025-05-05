@@ -30,7 +30,7 @@ func PBKDF2KeySize(n int) PBKDF2KeyProviderOption {
 	}
 }
 
-func NewPBKDF2KeyProvider(plainKeys [][]byte, salt []byte, hashFunc func() hash.Hash, options ...PBKDF2KeyProviderOption) *PBKDF2KeyProvider {
+func KeyProviderPBKDF2(plainKeys [][]byte, salt []byte, hashFunc func() hash.Hash, options ...PBKDF2KeyProviderOption) *PBKDF2KeyProvider {
 	keyProvider := &PBKDF2KeyProvider{
 		iterations: DefaultIterations,
 		keySize:    DefaultKeySize,

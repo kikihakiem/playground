@@ -21,7 +21,10 @@ type Encryptor struct {
 	Serializer
 }
 
-func NewEncryptor(cipherer Cipherer, serializer Serializer) *Encryptor {
+// New creates a new encryption instance with the given cipher and encoder.
+// The cipher is used to encrypt and decrypt the data.
+// The encoder is used to encode and decode the data.
+func New(cipherer Cipherer, serializer Serializer) *Encryptor {
 	return &Encryptor{
 		Serializer: serializer,
 		Cipherer:   cipherer,

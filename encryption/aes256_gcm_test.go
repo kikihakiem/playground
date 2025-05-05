@@ -7,20 +7,21 @@ import (
 	"testing"
 
 	"github.com/bobobox-id/go-library/encryption"
+	"github.com/bobobox-id/go-library/encryption/initvector"
 	"github.com/stretchr/testify/assert"
 )
 
 func newDeterministicCipher(keys [][]byte) *encryption.AES256GCM {
-	return encryption.NewAES256GCMCipher(
-		encryption.NewPBKDF2KeyProvider(keys, salt, sha256.New, encryption.PBKDF2KeySize(encryption.AES256GCMKeySize)),
-		encryption.NewDeterministicIVGenerator(sha256.New),
+	return encryption.CipherAES256GCM(
+		encryption.KeyProviderPBKDF2(keys, salt, sha256.New, encryption.PBKDF2KeySize(encryption.AES256GCMKeySize)),
+		initvector.Deterministic(sha256.New),
 	)
 }
 
 func newNonDeterministicCipher() *encryption.AES256GCM {
-	return encryption.NewAES256GCMCipher(
-		encryption.NewPBKDF2KeyProvider([][]byte{key2}, salt, sha256.New, encryption.PBKDF2KeySize(encryption.AES256GCMKeySize)),
-		encryption.NewRandomIVGenerator(),
+	return encryption.CipherAES256GCM(
+		encryption.KeyProviderPBKDF2([][]byte{key2}, salt, sha256.New, encryption.PBKDF2KeySize(encryption.AES256GCMKeySize)),
+		initvector.Random(),
 	)
 }
 

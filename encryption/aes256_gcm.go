@@ -31,7 +31,7 @@ type AES256GCM struct {
 	nonceSize   int
 }
 
-func NewAES256GCMCipher(keyProvider RotatingKeyProvider, ivGenerator InitVectorer) *AES256GCM {
+func CipherAES256GCM(keyProvider RotatingKeyProvider, ivGenerator InitVectorer) *AES256GCM {
 	return &AES256GCM{
 		RotatingKeyProvider: keyProvider,
 		InitVectorer:        ivGenerator,
