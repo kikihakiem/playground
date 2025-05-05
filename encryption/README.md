@@ -5,12 +5,12 @@ A flexible and secure text encryption library for Go with configurable ciphers, 
 ## Features
 
 - 🔒 Multiple encryption algorithms:
-  - AES-256-GCM (default)
+  - AES-256-GCM
   - ChaCha20-Poly1305
   - XChaCha20-Poly1305
 - 🔄 Configurable IV generation (deterministic or random)
 - 🔑 Multiple key derivation functions:
-  - PBKDF2 (default)
+  - PBKDF2
   - Scrypt
   - Argon2id
 - 📦 Multiple serialization formats (Base64, JSON)
@@ -35,6 +35,10 @@ import (
     "encoding/base64"
     "fmt"
     "github.com/kikihakiem/playground/encryption"
+    "github.com/kikihakiem/playground/encryption/cipher"
+    "github.com/kikihakiem/playground/encryption/encoding"
+    "github.com/kikihakiem/playground/encryption/initvector"
+    "github.com/kikihakiem/playground/encryption/key"
 )
 
 func main() {
@@ -44,17 +48,12 @@ func main() {
     plainText := []byte("Hello, World!")
 
     // Create a deterministic encryptor with AES-256-GCM
-    deterministicEncryptor := encryption.NewEncryptor(
-        encryption.NewAES256GCMCipher(
-            encryption.NewPBKDF2KeyProvider(
-                [][]byte{key},
-                salt,
-                sha256.New,
-                encryption.PBKDF2KeySize(encryption.AES256KeySize),
-            ),
-            encryption.NewDeterministicIVGenerator(sha256.New),
+    deterministicEncryptor := encryption.New(
+        cipher.AES256GCM(
+            key.PBKDF2Provider([][]byte{key}, salt, sha256.New, cipher.AES256GCMKeySize),
+            initvector.Deterministic(sha256.New),
         ),
-        encryption.NewSimpleBase64Encoder(base64.RawStdEncoding),
+        encoding.SimpleBase64(base64.RawStdEncoding),
     )
 
     // Encrypt the plain text
@@ -73,58 +72,61 @@ func main() {
 }
 ```
 
-### Using Scrypt for Key Derivation
+### Using Argon2 or Scrypt Key Provider
+
+Argon2 key provider with its options:
 
 ```go
-// Create an encryptor using Scrypt for key derivation
-scryptEncryptor := encryption.NewEncryptor(
-    encryption.NewAES256GCMCipher(
-        encryption.NewScryptKeyProvider(
-            [][]byte{key},
-            salt,
-            32, // key length
-            encryption.ScryptN(1<<15), // CPU/memory cost
-            encryption.ScryptR(8),     // block size
-            encryption.ScryptP(1),     // parallelization
-        ),
-        encryption.NewRandomIVGenerator(),
-    ),
-    encryption.NewSimpleBase64Encoder(base64.RawStdEncoding),
+scryptKeyProvider := key.ScryptKeyProvider(
+    [][]byte{key},
+    salt,
+    32, // key length
+    key.ScryptN(1<<15), // CPU/memory cost
+    key.ScryptR(8),     // block size
+    key.ScryptP(1),     // parallelization
 )
 ```
 
-### Using ChaCha20-Poly1305
+Scrypt key provider with its options:
 
 ```go
-// Create an encryptor using ChaCha20-Poly1305
-chachaEncryptor := encryption.NewEncryptor(
-    encryption.NewChaCha20Poly1305Cipher(
-        encryption.NewPBKDF2KeyProvider(
-            [][]byte{key},
-            salt,
-            sha256.New,
-        ),
-        encryption.NewRandomIVGenerator(),
-    ),
-    encryption.NewSimpleBase64Encoder(base64.RawStdEncoding),
+scryptKeyProvider := key.Argon2Provider(
+    [][]byte{key},
+    salt,
+    32,
+    key.Argon2Time(1),
+    key.Argon2Memory(64*1024),
+    key.Argon2Parallelism(4),
 )
 ```
 
-### Rails ActiveRecord Compatibility
+### Using Extended ChaCha20-Poly1305
 
 ```go
-// Create a Rails-compatible encryptor
-railsCompatibleEncryptor := encryption.NewEncryptor(
-    encryption.NewAES256GCMCipher(
-        encryption.NewPBKDF2KeyProvider(
+xChachaEncryptor := encryption.New(
+    cipher.XChaCha20Poly1305(
+        key.Argon2([][]byte{key}, salt, cipher.ChaCha20Poly1305KeySize),
+        initvector.Random(),
+    ),
+    encoding.SimpleBase64(base64.RawStdEncoding),
+)
+```
+
+### Rails ActiveRecord Compatible Encryptor
+
+```go
+railsCompatibleEncryptor := encryption.New(
+    cipher.AES256GCM(
+        key.PBKDF2Provider(
             [][]byte{key},
             salt,
             sha1.New,
-            encryption.PBKDF2Iterations(1<<16),
+            cipher.AES256GCMKeySize,
+            key.PBKDF2Iterations(1<<16),
         ),
-        encryption.NewRandomIVGenerator(),
+        initvector.Random(),
     ),
-    encryption.NewBase64JSONEncoder(base64.StdEncoding),
+    encoding.JSONBase64(base64.StdEncoding),
 )
 ```
 
@@ -137,12 +139,12 @@ The library is built with a modular architecture consisting of two main componen
 The cipher component handles the core encryption/decryption operations:
 
 - **IV Generator**: Creates initialization vectors (nonces)
-  - `DeterministicIV`: Generates consistent IVs for the same input
-  - `RandomIV`: Generates cryptographically secure random IVs
+  - `Deterministic`: Generates consistent IVs for the same input. Accepts a hash function as parameter.
+  - `Random`: Generates cryptographically secure random IVs.
 - **Key Provider**: Manages encryption keys and rotation
-  - PBKDF2: Configurable iterations and hash function
-  - Scrypt: Configurable CPU/memory cost, block size, and parallelization
-  - Argon2id: Configurable memory size, iterations, and parallelism
+  - PBKDF2: Configurable iterations and hash function.
+  - Scrypt: Configurable CPU/memory cost, block size, and parallelization.
+  - Argon2id: Configurable memory size, iterations, and parallelism.
 
 ### 2. Encoder
 
@@ -150,7 +152,6 @@ The encoder component handles the serialization of encrypted data:
 
 - **Base64**: Simple base64 encoding
 - **JSON**: Base64-encoded JSON format with metadata
-- **Custom**: Implement your own encoder
 
 ## Security Considerations
 
