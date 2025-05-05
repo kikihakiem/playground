@@ -16,9 +16,9 @@ type pbkdf2Provider struct {
 	iterations int
 }
 
-type PBKDF2KeyProviderOption func(*pbkdf2Provider)
+type PBKDF2Option func(*pbkdf2Provider)
 
-func PBKDF2Iterations(n int) PBKDF2KeyProviderOption {
+func PBKDF2Iterations(n int) PBKDF2Option {
 	return func(pkp *pbkdf2Provider) {
 		pkp.iterations = n
 	}
@@ -26,7 +26,7 @@ func PBKDF2Iterations(n int) PBKDF2KeyProviderOption {
 
 var ErrNoKey = errors.New("no key")
 
-func PBKDF2Provider(plainKeys [][]byte, salt []byte, hashFunc func() hash.Hash, keySize int, options ...PBKDF2KeyProviderOption) *pbkdf2Provider {
+func PBKDF2Provider(plainKeys [][]byte, salt []byte, hashFunc func() hash.Hash, keyLength int, options ...PBKDF2Option) *pbkdf2Provider {
 	keyProvider := &pbkdf2Provider{
 		iterations: pbkdf2DefaultIterations,
 	}
@@ -40,7 +40,7 @@ func PBKDF2Provider(plainKeys [][]byte, salt []byte, hashFunc func() hash.Hash, 
 			plainKey,
 			salt,
 			keyProvider.iterations,
-			keySize,
+			keyLength,
 			hashFunc,
 		))
 	}

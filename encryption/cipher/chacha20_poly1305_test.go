@@ -24,10 +24,9 @@ func TestChaCha20Poly1305(t *testing.T) {
 
 	deterministicChaCha := encryption.New(
 		cipher.ChaCha20Poly1305(
-			key.PBKDF2Provider(
+			key.Argon2Provider(
 				[][]byte{chachaKey1},
 				chachaSalt,
-				sha256.New,
 				cipher.ChaCha20Poly1305KeySize,
 			),
 			initvector.Deterministic(sha256.New),
@@ -37,10 +36,9 @@ func TestChaCha20Poly1305(t *testing.T) {
 
 	nonDeterministicChaCha := encryption.New(
 		cipher.ChaCha20Poly1305(
-			key.PBKDF2Provider(
+			key.Argon2Provider(
 				[][]byte{chachaKey1},
 				chachaSalt,
-				sha256.New,
 				cipher.ChaCha20Poly1305KeySize,
 			),
 			initvector.Random(),
