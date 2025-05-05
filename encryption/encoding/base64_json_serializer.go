@@ -34,20 +34,20 @@ func (b64 *base64Text) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-type Base64JSON struct {
+type base64JSON struct {
 	Payload base64Text `json:"p"`
-	Header  Header     `json:"h"`
+	Header  header     `json:"h"`
 }
 
-type Header struct {
+type header struct {
 	AuthTag    base64Text `json:"at"`
 	InitVector base64Text `json:"iv"`
 }
 
-func newBase64JSON(nonce, payload, authTag []byte, encoder *base64.Encoding) Base64JSON {
-	return Base64JSON{
+func newBase64JSON(nonce, payload, authTag []byte, encoder *base64.Encoding) base64JSON {
+	return base64JSON{
 		Payload: base64Text{payload: payload, encoder: encoder},
-		Header: Header{
+		Header: header{
 			InitVector: base64Text{payload: nonce, encoder: encoder},
 			AuthTag:    base64Text{payload: authTag, encoder: encoder},
 		},

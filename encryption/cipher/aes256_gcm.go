@@ -1,4 +1,4 @@
-package encryption
+package cipher
 
 import (
 	"crypto/aes"
@@ -10,32 +10,23 @@ const (
 	AES256GCMKeySize = 32
 )
 
-type RotatingKeyProvider interface {
-	EncryptionKey() []byte
-	DecryptionKeys() [][]byte
-}
-
-type InitVectorer interface {
-	InitVector(key, param []byte, size int) ([]byte, error)
-}
-
-type AES256GCM struct {
-	RotatingKeyProvider
-	InitVectorer
+type aes256GCM struct {
+	rotatingKeyProvider
+	initVectorer
 	authTagSize int
 	nonceSize   int
 }
 
-func CipherAES256GCM(keyProvider RotatingKeyProvider, ivGenerator InitVectorer) *AES256GCM {
-	return &AES256GCM{
-		RotatingKeyProvider: keyProvider,
-		InitVectorer:        ivGenerator,
+func AES256GCM(keyProvider rotatingKeyProvider, ivGenerator initVectorer) *aes256GCM {
+	return &aes256GCM{
+		rotatingKeyProvider: keyProvider,
+		initVectorer:        ivGenerator,
 		authTagSize:         16, // GCM tag size
 		nonceSize:           12, // GCM standard nonce size
 	}
 }
 
-func (c *AES256GCM) Cipher(plainText []byte) ([]byte, []byte, error) {
+func (c *aes256GCM) Cipher(plainText []byte) ([]byte, []byte, error) {
 	encryptionKey := c.EncryptionKey()
 
 	nonce, err := c.InitVector(encryptionKey, plainText, c.nonceSize)
@@ -58,7 +49,7 @@ func (c *AES256GCM) Cipher(plainText []byte) ([]byte, []byte, error) {
 	return nonce, cipherText, nil
 }
 
-func (c *AES256GCM) Decipher(nonce, cipherText []byte) (deciphered []byte, err error) {
+func (c *aes256GCM) Decipher(nonce, cipherText []byte) (deciphered []byte, err error) {
 	if len(nonce) < c.nonceSize || len(cipherText) < c.authTagSize {
 		return nil, ErrTruncated
 	}
@@ -73,7 +64,7 @@ func (c *AES256GCM) Decipher(nonce, cipherText []byte) (deciphered []byte, err e
 	return
 }
 
-func (c *AES256GCM) decipher(decryptionKey, nonce, cipherText []byte) ([]byte, error) {
+func (c *aes256GCM) decipher(decryptionKey, nonce, cipherText []byte) ([]byte, error) {
 	block, err := aes.NewCipher(decryptionKey)
 	if err != nil {
 		return nil, fmt.Errorf("new cipher: %w", err)
@@ -92,10 +83,10 @@ func (c *AES256GCM) decipher(decryptionKey, nonce, cipherText []byte) ([]byte, e
 	return plaintext, nil
 }
 
-func (c *AES256GCM) AuthTagSize() int {
+func (c *aes256GCM) AuthTagSize() int {
 	return c.authTagSize
 }
 
-func (c *AES256GCM) NonceSize() int {
+func (c *aes256GCM) NonceSize() int {
 	return c.nonceSize
 }
