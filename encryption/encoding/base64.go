@@ -1,6 +1,7 @@
 package encoding
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 
@@ -18,7 +19,10 @@ func NewSimpleBase64(enc *base64.Encoding) *SimpleBase64 {
 }
 
 // Serialize encodes the nonce and ciphertext into a single Base64 byte slice.
-func (s SimpleBase64) Serialize(nonce, cipherText []byte, authTagSize, nonceSize int) ([]byte, error) {
+func (s SimpleBase64) Serialize(ctx context.Context, nonce, cipherText []byte, authTagSize, nonceSize int) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	cipherTextWithNonce := append(nonce, cipherText...)
 	encoded := make([]byte, s.EncodedLen(len(cipherTextWithNonce)))
 	s.Encode(encoded, cipherTextWithNonce)
@@ -27,7 +31,10 @@ func (s SimpleBase64) Serialize(nonce, cipherText []byte, authTagSize, nonceSize
 }
 
 // Deserialize decodes the Base64 byte slice into nonce and ciphertext.
-func (s SimpleBase64) Deserialize(encoded []byte, authTagSize, nonceSize int) ([]byte, []byte, error) {
+func (s SimpleBase64) Deserialize(ctx context.Context, encoded []byte, authTagSize, nonceSize int) ([]byte, []byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	decoded := make([]byte, s.DecodedLen(len(encoded)))
 	n, err := s.Decode(decoded, encoded)
 	if err != nil {

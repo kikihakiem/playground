@@ -3,6 +3,7 @@
 package key
 
 import (
+	"context"
 	"crypto/sha256"
 	"testing"
 
@@ -14,6 +15,7 @@ func TestNewPBKDF2Provider(t *testing.T) {
 	salt := []byte("test-salt")
 	plainKey1 := []byte("key1")
 	plainKey2 := []byte("key2")
+	ctx := context.Background()
 
 	t.Run("custom key size", func(t *testing.T) {
 		customSize := 24
@@ -26,7 +28,7 @@ func TestNewPBKDF2Provider(t *testing.T) {
 		require.NoError(t, err)
 
 		// Key should match specified size
-		encryptionKey, err := provider.EncryptionKey()
+		encryptionKey, err := provider.EncryptionKey(ctx)
 		assert.NoError(t, err)
 		assert.Len(t, encryptionKey, customSize)
 	})
@@ -52,9 +54,9 @@ func TestNewPBKDF2Provider(t *testing.T) {
 		require.NoError(t, err)
 
 		// Different iterations should produce different keys
-		encryptionKey1, err := provider1.EncryptionKey()
+		encryptionKey1, err := provider1.EncryptionKey(ctx)
 		assert.NoError(t, err)
-		encryptionKey2, err := provider2.EncryptionKey()
+		encryptionKey2, err := provider2.EncryptionKey(ctx)
 		assert.NoError(t, err)
 		assert.NotEqual(t, encryptionKey1, encryptionKey2)
 	})
@@ -73,7 +75,7 @@ func TestNewPBKDF2Provider(t *testing.T) {
 		require.NoError(t, err)
 
 		// Key should match specified size
-		encryptionKey, err := provider.EncryptionKey()
+		encryptionKey, err := provider.EncryptionKey(ctx)
 		assert.NoError(t, err)
 		assert.Len(t, encryptionKey, customSize)
 	})
@@ -88,12 +90,12 @@ func TestNewPBKDF2Provider(t *testing.T) {
 		require.NoError(t, err)
 
 		// Should have 2 decryption keys
-		decryptionKeys, err := provider.DecryptionKeys()
+		decryptionKeys, err := provider.DecryptionKeys(ctx)
 		assert.NoError(t, err)
 		assert.Len(t, decryptionKeys, 2)
 
 		// Encryption key should be the first key
-		encryptionKey, err := provider.EncryptionKey()
+		encryptionKey, err := provider.EncryptionKey(ctx)
 		assert.NoError(t, err)
 		assert.Equal(t, decryptionKeys[0], encryptionKey)
 
@@ -119,9 +121,9 @@ func TestNewPBKDF2Provider(t *testing.T) {
 		require.NoError(t, err)
 
 		// Same input should produce same key
-		encryptionKey1, err := provider1.EncryptionKey()
+		encryptionKey1, err := provider1.EncryptionKey(ctx)
 		assert.NoError(t, err)
-		encryptionKey2, err := provider2.EncryptionKey()
+		encryptionKey2, err := provider2.EncryptionKey(ctx)
 		assert.NoError(t, err)
 		assert.Equal(t, encryptionKey1, encryptionKey2)
 	})
@@ -135,10 +137,10 @@ func TestNewPBKDF2Provider(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		_, err = provider.EncryptionKey()
+		_, err = provider.EncryptionKey(ctx)
 		assert.ErrorIs(t, err, ErrNoKey)
 
-		_, err = provider.DecryptionKeys()
+		_, err = provider.DecryptionKeys(ctx)
 		assert.ErrorIs(t, err, ErrNoKey)
 	})
 

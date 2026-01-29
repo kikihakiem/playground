@@ -1,6 +1,7 @@
 package key
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"hash"
@@ -80,7 +81,7 @@ func NewPBKDF2Provider(plainKeys [][]byte, salt []byte, hashFunc func() hash.Has
 }
 
 // EncryptionKey returns the primary key used for encryption (the most recent one).
-func (kp *PBKDF2Provider) EncryptionKey() ([]byte, error) {
+func (kp *PBKDF2Provider) EncryptionKey(ctx context.Context) ([]byte, error) {
 	if len(kp.keys) == 0 {
 		return nil, ErrNoKey
 	}
@@ -89,7 +90,7 @@ func (kp *PBKDF2Provider) EncryptionKey() ([]byte, error) {
 }
 
 // DecryptionKeys returns all available keys for decryption.
-func (kp *PBKDF2Provider) DecryptionKeys() ([][]byte, error) {
+func (kp *PBKDF2Provider) DecryptionKeys(ctx context.Context) ([][]byte, error) {
 	if len(kp.keys) == 0 {
 		return nil, ErrNoKey
 	}

@@ -3,6 +3,7 @@
 package cipher_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"testing"
@@ -20,6 +21,7 @@ func TestChaCha20Poly1305(t *testing.T) {
 		chachaSalt      = []byte("ChaCha20Poly1305TestSalt12345")
 		chachaKey1      = []byte("ChaCha20Poly1305TestKey123456789012")
 		chachaPlainText = []byte("Hello ChaCha20-Poly1305!")
+		ctx             = context.Background()
 	)
 
 	keyProvider1, err := key.NewArgon2Provider(
@@ -57,43 +59,43 @@ func TestChaCha20Poly1305(t *testing.T) {
 	)
 
 	t.Run("deterministic encryption", func(t *testing.T) {
-		encrypted1, err := deterministicChaCha.Encrypt(chachaPlainText)
+		encrypted1, err := deterministicChaCha.Encrypt(ctx, chachaPlainText)
 		assert.NoError(t, err)
 
-		encrypted2, err := deterministicChaCha.Encrypt(chachaPlainText)
+		encrypted2, err := deterministicChaCha.Encrypt(ctx, chachaPlainText)
 		assert.NoError(t, err)
 
 		// Deterministic encryption should produce same output for same input
 		assert.Equal(t, encrypted1, encrypted2)
 
 		// Test decryption
-		decrypted, err := deterministicChaCha.Decrypt(encrypted1)
+		decrypted, err := deterministicChaCha.Decrypt(ctx, encrypted1)
 		assert.NoError(t, err)
 		assert.Equal(t, chachaPlainText, decrypted)
 	})
 
 	t.Run("non-deterministic encryption", func(t *testing.T) {
-		encrypted1, err := nonDeterministicChaCha.Encrypt(chachaPlainText)
+		encrypted1, err := nonDeterministicChaCha.Encrypt(ctx, chachaPlainText)
 		assert.NoError(t, err)
 
-		encrypted2, err := nonDeterministicChaCha.Encrypt(chachaPlainText)
+		encrypted2, err := nonDeterministicChaCha.Encrypt(ctx, chachaPlainText)
 		assert.NoError(t, err)
 
 		// Non-deterministic encryption should produce different output for same input
 		assert.NotEqual(t, encrypted1, encrypted2)
 
 		// Test both encryptions can be decrypted correctly
-		decrypted1, err := nonDeterministicChaCha.Decrypt(encrypted1)
+		decrypted1, err := nonDeterministicChaCha.Decrypt(ctx, encrypted1)
 		assert.NoError(t, err)
 		assert.Equal(t, chachaPlainText, decrypted1)
 
-		decrypted2, err := nonDeterministicChaCha.Decrypt(encrypted2)
+		decrypted2, err := nonDeterministicChaCha.Decrypt(ctx, encrypted2)
 		assert.NoError(t, err)
 		assert.Equal(t, chachaPlainText, decrypted2)
 	})
 
 	t.Run("invalid nonce", func(t *testing.T) {
-		encrypted, err := nonDeterministicChaCha.Encrypt(chachaPlainText)
+		encrypted, err := nonDeterministicChaCha.Encrypt(ctx, chachaPlainText)
 		assert.NoError(t, err)
 
 		// Corrupt the nonce portion
@@ -101,7 +103,7 @@ func TestChaCha20Poly1305(t *testing.T) {
 		copy(corrupted, encrypted)
 		corrupted[0] = ^corrupted[0]
 
-		_, err = nonDeterministicChaCha.Decrypt(corrupted)
+		_, err = nonDeterministicChaCha.Decrypt(ctx, corrupted)
 		assert.Error(t, err)
 	})
 
@@ -116,10 +118,10 @@ func TestChaCha20Poly1305(t *testing.T) {
 			initvector.Deterministic(sha256.New),
 		)
 
-		_, _, err = cipher.Cipher([]byte("secret"))
+		_, _, err = cipher.Cipher(ctx, []byte("secret"))
 		assert.ErrorIs(t, err, key.ErrNoKey)
 
-		_, err = cipher.Decipher(make([]byte, 12), make([]byte, 16))
+		_, err = cipher.Decipher(ctx, make([]byte, 12), make([]byte, 16))
 		assert.ErrorIs(t, err, key.ErrNoKey)
 	})
 	t.Run("decrypt with wrong key", func(t *testing.T) {
@@ -133,7 +135,7 @@ func TestChaCha20Poly1305(t *testing.T) {
 			keyProvider1,
 			initvector.Deterministic(sha256.New),
 		)
-		nonce, cipherText, err := cipher1.Cipher(plainText)
+		nonce, cipherText, err := cipher1.Cipher(ctx, plainText)
 		assert.NoError(t, err)
 
 		// wrong key
@@ -146,12 +148,12 @@ func TestChaCha20Poly1305(t *testing.T) {
 			keyProvider2,
 			initvector.Deterministic(sha256.New),
 		)
-		_, err = cipherWithWrongKey.Decipher(nonce, cipherText)
+		_, err = cipherWithWrongKey.Decipher(ctx, nonce, cipherText)
 		assert.ErrorContains(t, err, "failed")
 
 		// tampered cipher text
 		cipherText[13] = 65
-		_, err = cipher1.Decipher(nonce, cipherText)
+		_, err = cipher1.Decipher(ctx, nonce, cipherText)
 		assert.ErrorContains(t, err, "failed")
 	})
 }

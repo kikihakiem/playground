@@ -1,6 +1,7 @@
 package encoding
 
 import (
+	"context"
 	"encoding/ascii85"
 	"fmt"
 
@@ -16,7 +17,10 @@ func NewBase85() *Base85Serializer {
 }
 
 // Serialize encodes the nonce and ciphertext into an Ascii85 byte slice.
-func (b Base85Serializer) Serialize(nonce, cipherText []byte, authTagSize, nonceSize int) ([]byte, error) {
+func (b Base85Serializer) Serialize(ctx context.Context, nonce, cipherText []byte, authTagSize, nonceSize int) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	cipherTextWithNonce := append(nonce, cipherText...)
 	maxLen := ascii85.MaxEncodedLen(len(cipherTextWithNonce)) + 4 // +4 for <~ and ~>
 	encoded := make([]byte, maxLen)
@@ -36,7 +40,10 @@ func (b Base85Serializer) Serialize(nonce, cipherText []byte, authTagSize, nonce
 }
 
 // Deserialize decodes the Ascii85 byte slice into nonce and ciphertext.
-func (b Base85Serializer) Deserialize(encoded []byte, authTagSize, nonceSize int) ([]byte, []byte, error) {
+func (b Base85Serializer) Deserialize(ctx context.Context, encoded []byte, authTagSize, nonceSize int) ([]byte, []byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	// Check for minimum length
 	if len(encoded) < 4 {
 		return nil, nil, encryption.ErrTruncated

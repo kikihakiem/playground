@@ -1,6 +1,7 @@
 package initvector
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"hash"
@@ -12,7 +13,10 @@ func Random() *random {
 	return &random{}
 }
 
-func (r *random) InitVector(_, _ []byte, size int) ([]byte, error) {
+func (r *random) InitVector(ctx context.Context, _, _ []byte, size int) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	b := make([]byte, size)
 
 	_, err := rand.Read(b)
@@ -32,7 +36,10 @@ func Deterministic(hashFunc func() hash.Hash) *deterministic {
 	return &deterministic{hashFunc}
 }
 
-func (d *deterministic) InitVector(key, param []byte, size int) ([]byte, error) {
+func (d *deterministic) InitVector(ctx context.Context, key, param []byte, size int) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	h := hmac.New(d.HashFunc, key)
 	h.Write(param)
 	return h.Sum(nil)[:size], nil

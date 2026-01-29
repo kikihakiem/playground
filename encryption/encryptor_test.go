@@ -3,6 +3,7 @@
 package encryption_test
 
 import (
+	"context"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
@@ -23,6 +24,8 @@ func TestEncryptor(t *testing.T) {
 
 	key2 := []byte("GgrHdjRRMUdJsZIoDYjBI79kxi2thh3F")
 	plainText2 := []byte("+855 126.007.4107")
+
+	ctx := context.Background()
 
 	keyProvider1, err := key.NewPBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize)
 	if err != nil {
@@ -51,44 +54,44 @@ func TestEncryptor(t *testing.T) {
 	)
 
 	t.Run("deterministic encrypt", func(t *testing.T) {
-		encrypted1, err := deterministicEncryptor.Encrypt(plainText1)
+		encrypted1, err := deterministicEncryptor.Encrypt(ctx, plainText1)
 		assert.NoError(t, err)
 
 		// Deterministic encryption should produce same output for same input
-		encrypted2, err := deterministicEncryptor.Encrypt(plainText1)
+		encrypted2, err := deterministicEncryptor.Encrypt(ctx, plainText1)
 		assert.NoError(t, err)
 		assert.Equal(t, encrypted1, encrypted2)
 
 		// Should be able to decrypt
-		decrypted, err := deterministicEncryptor.Decrypt(encrypted1)
+		decrypted, err := deterministicEncryptor.Decrypt(ctx, encrypted1)
 		assert.NoError(t, err)
 		assert.Equal(t, plainText1, decrypted)
 	})
 
 	t.Run("deterministic decrypt", func(t *testing.T) {
-		encrypted, err := deterministicEncryptor.Encrypt(plainText1)
+		encrypted, err := deterministicEncryptor.Encrypt(ctx, plainText1)
 		assert.NoError(t, err)
 
-		decrypted, err := deterministicEncryptor.Decrypt(encrypted)
+		decrypted, err := deterministicEncryptor.Decrypt(ctx, encrypted)
 		assert.NoError(t, err)
 		assert.Equal(t, plainText1, decrypted)
 	})
 
 	t.Run("non-deterministic encrypt/decrypt", func(t *testing.T) {
-		encrypted, err := nonDeterministicEncryptor.Encrypt(plainText2)
+		encrypted, err := nonDeterministicEncryptor.Encrypt(ctx, plainText2)
 		assert.NoError(t, err)
 
 		// we cannot expect the encrypted text is fixed, so we assert the decryption result instead
-		decrypted, err := nonDeterministicEncryptor.Decrypt([]byte(encrypted))
+		decrypted, err := nonDeterministicEncryptor.Decrypt(ctx, encrypted)
 		assert.NoError(t, err)
 		assert.Equal(t, plainText2, decrypted)
 	})
 
 	t.Run("non-deterministic decrypt", func(t *testing.T) {
-		encrypted, err := nonDeterministicEncryptor.Encrypt(plainText2)
+		encrypted, err := nonDeterministicEncryptor.Encrypt(ctx, plainText2)
 		assert.NoError(t, err)
 
-		decrypted, err := nonDeterministicEncryptor.Decrypt(encrypted)
+		decrypted, err := nonDeterministicEncryptor.Decrypt(ctx, encrypted)
 		assert.NoError(t, err)
 		assert.Equal(t, plainText2, decrypted)
 	})
@@ -106,13 +109,13 @@ func TestEncryptor(t *testing.T) {
 			encoding.NewSimpleBase64(base64.RawStdEncoding),
 		)
 
-		_, err = invalidCipher.Encrypt(plainText1)
+		_, err = invalidCipher.Encrypt(ctx, plainText1)
 		assert.ErrorContains(t, err, "cipher")
 	})
 
 	t.Run("decipher fails", func(t *testing.T) {
 		// Encrypt first
-		encrypted, err := deterministicEncryptor.Encrypt(plainText1)
+		encrypted, err := deterministicEncryptor.Encrypt(ctx, plainText1)
 		assert.NoError(t, err)
 
 		// Tamper with the encrypted text
@@ -120,14 +123,14 @@ func TestEncryptor(t *testing.T) {
 		copy(tamperedText, encrypted)
 		tamperedText[len(tamperedText)-1] = 'X'
 
-		_, err = deterministicEncryptor.Decrypt(tamperedText)
+		_, err = deterministicEncryptor.Decrypt(ctx, tamperedText)
 		assert.ErrorContains(t, err, "decipher")
 	})
 
 	t.Run("deserialize fails with invalid base64", func(t *testing.T) {
 		invalidBase64 := []byte("!@#$%^&*") // Invalid base64 data
 
-		_, err := deterministicEncryptor.Decrypt(invalidBase64)
+		_, err := deterministicEncryptor.Decrypt(ctx, invalidBase64)
 		assert.ErrorContains(t, err, "deserialize")
 	})
 }

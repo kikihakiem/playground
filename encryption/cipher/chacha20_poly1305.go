@@ -1,6 +1,7 @@
 package cipher
 
 import (
+	"context"
 	"crypto/cipher"
 	"fmt"
 
@@ -35,13 +36,17 @@ func NewChaCha20Poly1305(keyProvider RotatingKeyProvider, ivGenerator InitVector
 }
 
 // Cipher encrypts the plaintext using ChaCha20-Poly1305.
-func (c *ChaCha20Poly1305) Cipher(plainText []byte) ([]byte, []byte, error) {
-	encryptionKey, err := c.EncryptionKey()
+func (c *ChaCha20Poly1305) Cipher(ctx context.Context, plainText []byte) ([]byte, []byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	encryptionKey, err := c.EncryptionKey(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get encryption key: %w", err)
 	}
 
-	nonce, err := c.InitVector(encryptionKey, plainText, c.nonceSize)
+	nonce, err := c.InitVector(ctx, encryptionKey, plainText, c.nonceSize)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generate IV: %w", err)
 	}
@@ -57,18 +62,26 @@ func (c *ChaCha20Poly1305) Cipher(plainText []byte) ([]byte, []byte, error) {
 }
 
 // Decipher decrypts the ciphertext using ChaCha20-Poly1305.
-func (c *ChaCha20Poly1305) Decipher(nonce, cipherText []byte) ([]byte, error) {
+func (c *ChaCha20Poly1305) Decipher(ctx context.Context, nonce, cipherText []byte) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if len(nonce) != c.nonceSize {
 		return nil, fmt.Errorf("invalid nonce size: got %d, want %d", len(nonce), c.nonceSize)
 	}
 
-	decryptionKeys, err := c.DecryptionKeys()
+	decryptionKeys, err := c.DecryptionKeys(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get decryption keys: %w", err)
 	}
 
 	var lastErr error
 	for i, key := range decryptionKeys {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		aead, err := c.cipher(key)
 		if err != nil {
 			lastErr = fmt.Errorf("key %d: create cipher: %w", i, err)

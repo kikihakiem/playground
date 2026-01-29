@@ -3,6 +3,7 @@
 package cipher_test
 
 import (
+	"context"
 	"crypto/aes"
 	cryptocipher "crypto/cipher"
 	"crypto/sha256"
@@ -19,6 +20,7 @@ func TestAES256GCM(t *testing.T) {
 		salt = []byte("IxZVjMFODIeBCscvZbMEcT2ZESgWEmW1")
 		key1 = []byte("MFYuo94qPvLiGC15cn9IzFZ8z1IAB344")
 		key2 = []byte("GgrHdjRRMUdJsZIoDYjBI79kxi2thh3F")
+		ctx  = context.Background()
 	)
 
 	t.Run("truncated nonce", func(t *testing.T) {
@@ -33,7 +35,7 @@ func TestAES256GCM(t *testing.T) {
 		)
 
 		truncatedNonce := make([]byte, 10)
-		_, err = cipher.Decipher(truncatedNonce, nil)
+		_, err = cipher.Decipher(ctx, truncatedNonce, nil)
 		assert.ErrorContains(t, err, "truncated")
 	})
 
@@ -51,7 +53,7 @@ func TestAES256GCM(t *testing.T) {
 			keyProvider1,
 			initvector.Deterministic(sha256.New),
 		)
-		nonce1, cipherText1, err := oldCipher.Cipher(plainText)
+		nonce1, cipherText1, err := oldCipher.Cipher(ctx, plainText)
 		assert.NoError(t, err)
 
 		// rotate key
@@ -67,13 +69,13 @@ func TestAES256GCM(t *testing.T) {
 		)
 
 		// encrypt the same secret with the new key. Expect the result will be different
-		nonce2, cipherText2, err := newCipher.Cipher(plainText)
+		nonce2, cipherText2, err := newCipher.Cipher(ctx, plainText)
 		assert.NoError(t, err)
 		assert.NotEqual(t, nonce1, nonce2)
 		assert.NotEqual(t, cipherText1, cipherText2)
 
 		// try to decrypt the old encrypted secret. Expect successful decryption
-		deciphered, err := newCipher.Decipher(nonce1, cipherText1)
+		deciphered, err := newCipher.Decipher(ctx, nonce1, cipherText1)
 		assert.NoError(t, err)
 		assert.Equal(t, plainText, deciphered)
 	})
@@ -89,7 +91,7 @@ func TestAES256GCM(t *testing.T) {
 			keyProvider1,
 			initvector.Deterministic(sha256.New),
 		)
-		nonce, cipherText, err := cipher1.Cipher(plainText)
+		nonce, cipherText, err := cipher1.Cipher(ctx, plainText)
 		assert.NoError(t, err)
 
 		// wrong key
@@ -102,12 +104,12 @@ func TestAES256GCM(t *testing.T) {
 			keyProvider2,
 			initvector.Deterministic(sha256.New),
 		)
-		_, err = cipherWithWrongKey.Decipher(nonce, cipherText)
+		_, err = cipherWithWrongKey.Decipher(ctx, nonce, cipherText)
 		assert.ErrorContains(t, err, "failed")
 
 		// tampered cipher text
 		cipherText[13] = 65
-		_, err = cipher1.Decipher(nonce, cipherText)
+		_, err = cipher1.Decipher(ctx, nonce, cipherText)
 		assert.ErrorContains(t, err, "failed")
 	})
 
@@ -143,10 +145,10 @@ func TestAES256GCM(t *testing.T) {
 			initvector.Deterministic(sha256.New),
 		)
 
-		_, _, err = cipher.Cipher([]byte("secret"))
+		_, _, err = cipher.Cipher(ctx, []byte("secret"))
 		assert.ErrorIs(t, err, key.ErrNoKey)
 
-		_, err = cipher.Decipher(make([]byte, 12), make([]byte, 16))
+		_, err = cipher.Decipher(ctx, make([]byte, 12), make([]byte, 16))
 		assert.ErrorIs(t, err, key.ErrNoKey)
 	})
 }

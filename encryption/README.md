@@ -50,6 +50,7 @@ These validations help prevent weak encryption configurations. All key providers
 package main
 
 import (
+    "context"
     "crypto/sha256"
     "encoding/base64"
     "fmt"
@@ -88,13 +89,13 @@ func main() {
     )
 
     // Encrypt the plain text
-    encrypted, err := deterministicEncryptor.Encrypt(plainText)
+    encrypted, err := deterministicEncryptor.Encrypt(context.Background(), plainText)
     if err != nil {
         log.Fatalf("Encryption failed: %v", err)
     }
 
     // Decrypt the encrypted text
-    decrypted, err := deterministicEncryptor.Decrypt(encrypted)
+    decrypted, err := deterministicEncryptor.Decrypt(context.Background(), encrypted)
     if err != nil {
         log.Fatalf("Decryption failed: %v", err)
     }

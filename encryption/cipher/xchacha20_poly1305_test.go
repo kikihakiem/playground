@@ -3,6 +3,7 @@
 package cipher_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"testing"
@@ -21,6 +22,7 @@ func TestXChaCha20Poly1305(t *testing.T) {
 		xchachaSalt      = []byte("XChaCha20Poly1305TestSalt12345")
 		xchachaKey1      = []byte("XChaCha20Poly1305TestKey123456789012")
 		xchachaPlainText = []byte("Hello XChaCha20-Poly1305!")
+		ctx              = context.Background()
 	)
 
 	scryptKeyProvider, err := key.NewScryptProvider(
@@ -47,43 +49,43 @@ func TestXChaCha20Poly1305(t *testing.T) {
 	)
 
 	t.Run("deterministic encryption", func(t *testing.T) {
-		encrypted1, err := deterministicXChaCha.Encrypt(xchachaPlainText)
+		encrypted1, err := deterministicXChaCha.Encrypt(ctx, xchachaPlainText)
 		assert.NoError(t, err)
 
-		encrypted2, err := deterministicXChaCha.Encrypt(xchachaPlainText)
+		encrypted2, err := deterministicXChaCha.Encrypt(ctx, xchachaPlainText)
 		assert.NoError(t, err)
 
 		// Deterministic encryption should produce same output for same input
 		assert.Equal(t, encrypted1, encrypted2)
 
 		// Test decryption
-		decrypted, err := deterministicXChaCha.Decrypt(encrypted1)
+		decrypted, err := deterministicXChaCha.Decrypt(ctx, encrypted1)
 		assert.NoError(t, err)
 		assert.Equal(t, xchachaPlainText, decrypted)
 	})
 
 	t.Run("non-deterministic encryption", func(t *testing.T) {
-		encrypted1, err := nonDeterministicXChaCha.Encrypt(xchachaPlainText)
+		encrypted1, err := nonDeterministicXChaCha.Encrypt(ctx, xchachaPlainText)
 		assert.NoError(t, err)
 
-		encrypted2, err := nonDeterministicXChaCha.Encrypt(xchachaPlainText)
+		encrypted2, err := nonDeterministicXChaCha.Encrypt(ctx, xchachaPlainText)
 		assert.NoError(t, err)
 
 		// Non-deterministic encryption should produce different output for same input
 		assert.NotEqual(t, encrypted1, encrypted2)
 
 		// Test both encryptions can be decrypted correctly
-		decrypted1, err := nonDeterministicXChaCha.Decrypt(encrypted1)
+		decrypted1, err := nonDeterministicXChaCha.Decrypt(ctx, encrypted1)
 		assert.NoError(t, err)
 		assert.Equal(t, xchachaPlainText, decrypted1)
 
-		decrypted2, err := nonDeterministicXChaCha.Decrypt(encrypted2)
+		decrypted2, err := nonDeterministicXChaCha.Decrypt(ctx, encrypted2)
 		assert.NoError(t, err)
 		assert.Equal(t, xchachaPlainText, decrypted2)
 	})
 
 	t.Run("invalid nonce", func(t *testing.T) {
-		encrypted, err := nonDeterministicXChaCha.Encrypt(xchachaPlainText)
+		encrypted, err := nonDeterministicXChaCha.Encrypt(ctx, xchachaPlainText)
 		assert.NoError(t, err)
 
 		// Corrupt the nonce portion
@@ -92,12 +94,12 @@ func TestXChaCha20Poly1305(t *testing.T) {
 		corrupted[0] ^= 0xff // Flip bits in first byte
 
 		// Decryption should fail
-		_, err = nonDeterministicXChaCha.Decrypt(corrupted)
+		_, err = nonDeterministicXChaCha.Decrypt(ctx, corrupted)
 		assert.Error(t, err)
 	})
 
 	t.Run("invalid ciphertext", func(t *testing.T) {
-		encrypted, err := nonDeterministicXChaCha.Encrypt(xchachaPlainText)
+		encrypted, err := nonDeterministicXChaCha.Encrypt(ctx, xchachaPlainText)
 		assert.NoError(t, err)
 
 		// Corrupt the ciphertext portion
@@ -106,7 +108,7 @@ func TestXChaCha20Poly1305(t *testing.T) {
 		corrupted[len(corrupted)-1] ^= 0xff // Flip bits in last byte
 
 		// Decryption should fail
-		_, err = nonDeterministicXChaCha.Decrypt(corrupted)
+		_, err = nonDeterministicXChaCha.Decrypt(ctx, corrupted)
 		assert.Error(t, err)
 	})
 }

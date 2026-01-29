@@ -1,19 +1,20 @@
 package encryption
 
 import (
+	"context"
 	"fmt"
 )
 
 type Cipherer interface {
-	Cipher(in []byte) (nonce, cipherText []byte, err error)
-	Decipher(nonce, cipherText []byte) (out []byte, err error)
+	Cipher(ctx context.Context, in []byte) (nonce, cipherText []byte, err error)
+	Decipher(ctx context.Context, nonce, cipherText []byte) (out []byte, err error)
 	AuthTagSize() int
 	NonceSize() int
 }
 
 type Serializer interface {
-	Serialize(nonce, cipherText []byte, authTagSize, nonceSize int) (out []byte, err error)
-	Deserialize(in []byte, authTagSize, nonceSize int) (nonce, cipherText []byte, err error)
+	Serialize(ctx context.Context, nonce, cipherText []byte, authTagSize, nonceSize int) (out []byte, err error)
+	Deserialize(ctx context.Context, in []byte, authTagSize, nonceSize int) (nonce, cipherText []byte, err error)
 }
 
 type Encryptor struct {
@@ -31,13 +32,17 @@ func New(cipherer Cipherer, serializer Serializer) *Encryptor {
 	}
 }
 
-func (e *Encryptor) Encrypt(plainText []byte) ([]byte, error) {
-	nonce, cipherText, err := e.Cipher(plainText)
+func (e *Encryptor) Encrypt(ctx context.Context, plainText []byte) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	nonce, cipherText, err := e.Cipher(ctx, plainText)
 	if err != nil {
 		return nil, fmt.Errorf("cipher: %w", err)
 	}
 
-	encrypted, err := e.Serialize(nonce, cipherText, e.AuthTagSize(), e.NonceSize())
+	encrypted, err := e.Serialize(ctx, nonce, cipherText, e.AuthTagSize(), e.NonceSize())
 	if err != nil {
 		return nil, fmt.Errorf("serialize: %w", err)
 	}
@@ -45,13 +50,17 @@ func (e *Encryptor) Encrypt(plainText []byte) ([]byte, error) {
 	return encrypted, nil
 }
 
-func (e *Encryptor) Decrypt(encryptedText []byte) ([]byte, error) {
-	nonce, cipherText, err := e.Deserialize(encryptedText, e.AuthTagSize(), e.NonceSize())
+func (e *Encryptor) Decrypt(ctx context.Context, encryptedText []byte) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	nonce, cipherText, err := e.Deserialize(ctx, encryptedText, e.AuthTagSize(), e.NonceSize())
 	if err != nil {
 		return nil, fmt.Errorf("deserialize: %w", err)
 	}
 
-	plainText, err := e.Decipher(nonce, cipherText)
+	plainText, err := e.Decipher(ctx, nonce, cipherText)
 	if err != nil {
 		return nil, fmt.Errorf("decipher: %w", err)
 	}

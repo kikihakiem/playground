@@ -1,6 +1,7 @@
 package cipher
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"fmt"
@@ -32,13 +33,17 @@ func NewAES256GCM(keyProvider RotatingKeyProvider, ivGenerator InitVectorer) *AE
 }
 
 // Cipher encrypts the plaintext using AES-256-GCM.
-func (c *AES256GCM) Cipher(plainText []byte) ([]byte, []byte, error) {
-	encryptionKey, err := c.EncryptionKey()
+func (c *AES256GCM) Cipher(ctx context.Context, plainText []byte) ([]byte, []byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	encryptionKey, err := c.EncryptionKey(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get encryption key: %w", err)
 	}
 
-	nonce, err := c.InitVector(encryptionKey, plainText, c.nonceSize)
+	nonce, err := c.InitVector(ctx, encryptionKey, plainText, c.nonceSize)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generate IV: %w", err)
 	}
@@ -59,18 +64,26 @@ func (c *AES256GCM) Cipher(plainText []byte) ([]byte, []byte, error) {
 }
 
 // Decipher decrypts the ciphertext using AES-256-GCM.
-func (c *AES256GCM) Decipher(nonce, cipherText []byte) (deciphered []byte, err error) {
+func (c *AES256GCM) Decipher(ctx context.Context, nonce, cipherText []byte) (deciphered []byte, err error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if len(nonce) < c.nonceSize || len(cipherText) < c.authTagSize {
 		return nil, encryption.ErrTruncated
 	}
 
-	decryptionKeys, err := c.DecryptionKeys()
+	decryptionKeys, err := c.DecryptionKeys(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get decryption keys: %w", err)
 	}
 
 	var lastErr error
 	for i, key := range decryptionKeys {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		deciphered, err = c.decipher(key, nonce, cipherText)
 		if err == nil {
 			return

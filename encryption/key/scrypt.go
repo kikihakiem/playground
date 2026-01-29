@@ -1,6 +1,7 @@
 package key
 
 import (
+	"context"
 	"fmt"
 
 	"golang.org/x/crypto/scrypt"
@@ -104,7 +105,7 @@ func NewScryptProvider(keys [][]byte, salt []byte, keyLength int, options ...Scr
 }
 
 // EncryptionKey returns the primary key used for encryption (the most recent one).
-func (p *ScryptProvider) EncryptionKey() ([]byte, error) {
+func (p *ScryptProvider) EncryptionKey(ctx context.Context) ([]byte, error) {
 	if len(p.keys) == 0 {
 		return nil, ErrNoKey
 	}
@@ -113,7 +114,7 @@ func (p *ScryptProvider) EncryptionKey() ([]byte, error) {
 }
 
 // DecryptionKeys returns all available keys for decryption.
-func (p *ScryptProvider) DecryptionKeys() ([][]byte, error) {
+func (p *ScryptProvider) DecryptionKeys(ctx context.Context) ([][]byte, error) {
 	if len(p.keys) == 0 {
 		return nil, ErrNoKey
 	}

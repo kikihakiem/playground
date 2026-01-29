@@ -1,6 +1,7 @@
 package encoding
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -68,7 +69,10 @@ func NewJSONBase64(enc *base64.Encoding) *JSONBase64Serializer {
 }
 
 // Serialize encodes the nonce and ciphertext into a JSON byte slice.
-func (j JSONBase64Serializer) Serialize(nonce, cipherText []byte, authTagSize, nonceSize int) ([]byte, error) {
+func (j JSONBase64Serializer) Serialize(ctx context.Context, nonce, cipherText []byte, authTagSize, nonceSize int) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if len(cipherText) < authTagSize {
 		return nil, encryption.ErrTruncated
 	}
@@ -84,7 +88,10 @@ func (j JSONBase64Serializer) Serialize(nonce, cipherText []byte, authTagSize, n
 }
 
 // Deserialize decodes the JSON byte slice into nonce and ciphertext.
-func (j JSONBase64Serializer) Deserialize(encoded []byte, authTagSize, nonceSize int) ([]byte, []byte, error) {
+func (j JSONBase64Serializer) Deserialize(ctx context.Context, encoded []byte, authTagSize, nonceSize int) ([]byte, []byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	decoded := newBase64JSON(nil, nil, nil, j.Encoding)
 
 	err := json.Unmarshal(encoded, &decoded)

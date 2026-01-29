@@ -1,6 +1,7 @@
 package key
 
 import (
+	"context"
 	"fmt"
 
 	"golang.org/x/crypto/argon2"
@@ -107,7 +108,7 @@ func NewArgon2Provider(keys [][]byte, salt []byte, keyLength int, options ...Arg
 }
 
 // EncryptionKey returns the primary key used for encryption (the most recent one).
-func (p *Argon2Provider) EncryptionKey() ([]byte, error) {
+func (p *Argon2Provider) EncryptionKey(ctx context.Context) ([]byte, error) {
 	if len(p.keys) == 0 {
 		return nil, ErrNoKey
 	}
@@ -116,7 +117,7 @@ func (p *Argon2Provider) EncryptionKey() ([]byte, error) {
 }
 
 // DecryptionKeys returns all available keys for decryption.
-func (p *Argon2Provider) DecryptionKeys() ([][]byte, error) {
+func (p *Argon2Provider) DecryptionKeys(ctx context.Context) ([][]byte, error) {
 	if len(p.keys) == 0 {
 		return nil, ErrNoKey
 	}
