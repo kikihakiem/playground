@@ -25,10 +25,10 @@ const (
 
 // ScryptProvider manages keys derived using scrypt.
 type ScryptProvider struct {
-	keys [][]byte
-	N    int
-	r    int
-	p    int
+	keyStore
+	N int
+	r int
+	p int
 }
 
 // ScryptOption is a function option for configuring ScryptProvider.
@@ -98,7 +98,7 @@ func NewScryptProvider(keys [][]byte, salt []byte, keyLength int, options ...Scr
 		if err != nil {
 			return nil, fmt.Errorf("derive key %d: %w", i, err)
 		}
-		provider.keys = append(provider.keys, derivedKey)
+		provider.keyStore.keys = append(provider.keyStore.keys, derivedKey)
 	}
 
 	return provider, nil
@@ -106,18 +106,18 @@ func NewScryptProvider(keys [][]byte, salt []byte, keyLength int, options ...Scr
 
 // EncryptionKey returns the primary key used for encryption (the most recent one).
 func (p *ScryptProvider) EncryptionKey(ctx context.Context) ([]byte, error) {
-	if len(p.keys) == 0 {
+	if len(p.keyStore.keys) == 0 {
 		return nil, ErrNoKey
 	}
 
-	return p.keys[0], nil
+	return p.keyStore.keys[0], nil
 }
 
 // DecryptionKeys returns all available keys for decryption.
 func (p *ScryptProvider) DecryptionKeys(ctx context.Context) ([][]byte, error) {
-	if len(p.keys) == 0 {
+	if len(p.keyStore.keys) == 0 {
 		return nil, ErrNoKey
 	}
 
-	return p.keys, nil
+	return p.keyStore.keys, nil
 }

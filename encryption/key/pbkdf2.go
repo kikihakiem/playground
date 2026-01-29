@@ -23,7 +23,7 @@ const (
 
 // PBKDF2Provider manages keys derived using PBKDF2.
 type PBKDF2Provider struct {
-	keys       [][]byte
+	keyStore
 	iterations int
 }
 
@@ -68,7 +68,7 @@ func NewPBKDF2Provider(plainKeys [][]byte, salt []byte, hashFunc func() hash.Has
 			return nil, fmt.Errorf("empty key provided")
 		}
 
-		keyProvider.keys = append(keyProvider.keys, pbkdf2.Key(
+		keyProvider.keyStore.keys = append(keyProvider.keyStore.keys, pbkdf2.Key(
 			plainKey,
 			salt,
 			keyProvider.iterations,
@@ -82,18 +82,18 @@ func NewPBKDF2Provider(plainKeys [][]byte, salt []byte, hashFunc func() hash.Has
 
 // EncryptionKey returns the primary key used for encryption (the most recent one).
 func (kp *PBKDF2Provider) EncryptionKey(ctx context.Context) ([]byte, error) {
-	if len(kp.keys) == 0 {
+	if len(kp.keyStore.keys) == 0 {
 		return nil, ErrNoKey
 	}
 
-	return kp.keys[0], nil // always encrypt using the latest key
+	return kp.keyStore.keys[0], nil // always encrypt using the latest key
 }
 
 // DecryptionKeys returns all available keys for decryption.
 func (kp *PBKDF2Provider) DecryptionKeys(ctx context.Context) ([][]byte, error) {
-	if len(kp.keys) == 0 {
+	if len(kp.keyStore.keys) == 0 {
 		return nil, ErrNoKey
 	}
 
-	return kp.keys, nil
+	return kp.keyStore.keys, nil
 }

@@ -25,7 +25,7 @@ const (
 
 // Argon2Provider manages keys derived using Argon2id.
 type Argon2Provider struct {
-	keys        [][]byte
+	keyStore
 	time        uint32
 	memory      uint32
 	parallelism uint8
@@ -94,7 +94,7 @@ func NewArgon2Provider(keys [][]byte, salt []byte, keyLength int, options ...Arg
 			return nil, fmt.Errorf("empty key provided at index %d", i)
 		}
 
-		keyProvider.keys = append(keyProvider.keys, argon2.IDKey(
+		keyProvider.keyStore.keys = append(keyProvider.keyStore.keys, argon2.IDKey(
 			key,
 			salt,
 			keyProvider.time,
@@ -109,18 +109,18 @@ func NewArgon2Provider(keys [][]byte, salt []byte, keyLength int, options ...Arg
 
 // EncryptionKey returns the primary key used for encryption (the most recent one).
 func (p *Argon2Provider) EncryptionKey(ctx context.Context) ([]byte, error) {
-	if len(p.keys) == 0 {
+	if len(p.keyStore.keys) == 0 {
 		return nil, ErrNoKey
 	}
 
-	return p.keys[0], nil
+	return p.keyStore.keys[0], nil
 }
 
 // DecryptionKeys returns all available keys for decryption.
 func (p *Argon2Provider) DecryptionKeys(ctx context.Context) ([][]byte, error) {
-	if len(p.keys) == 0 {
+	if len(p.keyStore.keys) == 0 {
 		return nil, ErrNoKey
 	}
 
-	return p.keys, nil
+	return p.keyStore.keys, nil
 }
