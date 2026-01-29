@@ -62,9 +62,11 @@ func (c *chaCha20Poly1305) Decipher(nonce, cipherText []byte) ([]byte, error) {
 		return nil, fmt.Errorf("get decryption keys: %w", err)
 	}
 
-	for _, key := range decryptionKeys {
+	var lastErr error
+	for i, key := range decryptionKeys {
 		aead, err := c.cipher(key)
 		if err != nil {
+			lastErr = fmt.Errorf("key %d: create cipher: %w", i, err)
 			continue
 		}
 
@@ -72,9 +74,10 @@ func (c *chaCha20Poly1305) Decipher(nonce, cipherText []byte) ([]byte, error) {
 		if err == nil {
 			return plainText, nil
 		}
+		lastErr = fmt.Errorf("key %d: %w", i, err)
 	}
 
-	return nil, fmt.Errorf("decryption failed")
+	return nil, fmt.Errorf("decryption failed with %d key(s): %w", len(decryptionKeys), lastErr)
 }
 
 func (c *chaCha20Poly1305) AuthTagSize() int {

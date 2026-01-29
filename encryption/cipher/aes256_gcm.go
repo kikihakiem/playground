@@ -62,14 +62,16 @@ func (c *aes256GCM) Decipher(nonce, cipherText []byte) (deciphered []byte, err e
 		return nil, fmt.Errorf("get decryption keys: %w", err)
 	}
 
-	for _, key := range decryptionKeys {
+	var lastErr error
+	for i, key := range decryptionKeys {
 		deciphered, err = c.decipher(key, nonce, cipherText)
 		if err == nil {
 			return
 		}
+		lastErr = fmt.Errorf("key %d: %w", i, err)
 	}
 
-	return nil, fmt.Errorf("decryption failed")
+	return nil, fmt.Errorf("decryption failed with %d key(s): %w", len(decryptionKeys), lastErr)
 }
 
 func (c *aes256GCM) decipher(decryptionKey, nonce, cipherText []byte) ([]byte, error) {
