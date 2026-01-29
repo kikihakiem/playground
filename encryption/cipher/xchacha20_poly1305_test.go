@@ -111,4 +111,63 @@ func TestXChaCha20Poly1305(t *testing.T) {
 		_, err = nonDeterministicXChaCha.Decrypt(ctx, corrupted)
 		assert.Error(t, err)
 	})
+
+	t.Run("AAD support", func(t *testing.T) {
+		aad := []byte("additional-authenticated-data")
+		plainText := []byte("sensitive-data")
+
+		t.Run("encrypt and decrypt with AAD", func(t *testing.T) {
+			encrypted, err := deterministicXChaCha.EncryptWithAAD(ctx, plainText, aad)
+			assert.NoError(t, err)
+			assert.NotEmpty(t, encrypted)
+
+			decrypted, err := deterministicXChaCha.DecryptWithAAD(ctx, encrypted, aad)
+			assert.NoError(t, err)
+			assert.Equal(t, plainText, decrypted)
+		})
+
+		t.Run("decrypt fails with wrong AAD", func(t *testing.T) {
+			encrypted, err := deterministicXChaCha.EncryptWithAAD(ctx, plainText, aad)
+			assert.NoError(t, err)
+
+			wrongAAD := []byte("wrong-aad")
+			_, err = deterministicXChaCha.DecryptWithAAD(ctx, encrypted, wrongAAD)
+			assert.Error(t, err)
+		})
+
+		t.Run("decrypt fails with nil AAD when encrypted with AAD", func(t *testing.T) {
+			encrypted, err := deterministicXChaCha.EncryptWithAAD(ctx, plainText, aad)
+			assert.NoError(t, err)
+
+			_, err = deterministicXChaCha.DecryptWithAAD(ctx, encrypted, nil)
+			assert.Error(t, err)
+		})
+
+		t.Run("different AAD produces different ciphertext", func(t *testing.T) {
+			aad1 := []byte("aad-1")
+			aad2 := []byte("aad-2")
+
+			encrypted1, err := deterministicXChaCha.EncryptWithAAD(ctx, plainText, aad1)
+			assert.NoError(t, err)
+
+			encrypted2, err := deterministicXChaCha.EncryptWithAAD(ctx, plainText, aad2)
+			assert.NoError(t, err)
+
+			assert.NotEqual(t, encrypted1, encrypted2)
+		})
+
+		t.Run("long AAD", func(t *testing.T) {
+			longAAD := make([]byte, 1024)
+			for i := range longAAD {
+				longAAD[i] = byte(i % 256)
+			}
+
+			encrypted, err := deterministicXChaCha.EncryptWithAAD(ctx, plainText, longAAD)
+			assert.NoError(t, err)
+
+			decrypted, err := deterministicXChaCha.DecryptWithAAD(ctx, encrypted, longAAD)
+			assert.NoError(t, err)
+			assert.Equal(t, plainText, decrypted)
+		})
+	})
 }

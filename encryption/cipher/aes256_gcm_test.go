@@ -35,7 +35,7 @@ func TestAES256GCM(t *testing.T) {
 		)
 
 		truncatedNonce := make([]byte, 10)
-		_, err = cipher.Decipher(ctx, truncatedNonce, nil)
+		_, err = cipher.Decipher(ctx, truncatedNonce, nil, nil)
 		assert.ErrorContains(t, err, "truncated")
 	})
 
@@ -53,7 +53,7 @@ func TestAES256GCM(t *testing.T) {
 			keyProvider1,
 			initvector.Deterministic(sha256.New),
 		)
-		nonce1, cipherText1, err := oldCipher.Cipher(ctx, plainText)
+		nonce1, cipherText1, err := oldCipher.Cipher(ctx, plainText, nil)
 		assert.NoError(t, err)
 
 		// rotate key
@@ -69,13 +69,13 @@ func TestAES256GCM(t *testing.T) {
 		)
 
 		// encrypt the same secret with the new key. Expect the result will be different
-		nonce2, cipherText2, err := newCipher.Cipher(ctx, plainText)
+		nonce2, cipherText2, err := newCipher.Cipher(ctx, plainText, nil)
 		assert.NoError(t, err)
 		assert.NotEqual(t, nonce1, nonce2)
 		assert.NotEqual(t, cipherText1, cipherText2)
 
 		// try to decrypt the old encrypted secret. Expect successful decryption
-		deciphered, err := newCipher.Decipher(ctx, nonce1, cipherText1)
+		deciphered, err := newCipher.Decipher(ctx, nonce1, cipherText1, nil)
 		assert.NoError(t, err)
 		assert.Equal(t, plainText, deciphered)
 	})
@@ -91,7 +91,7 @@ func TestAES256GCM(t *testing.T) {
 			keyProvider1,
 			initvector.Deterministic(sha256.New),
 		)
-		nonce, cipherText, err := cipher1.Cipher(ctx, plainText)
+		nonce, cipherText, err := cipher1.Cipher(ctx, plainText, nil)
 		assert.NoError(t, err)
 
 		// wrong key
@@ -104,12 +104,12 @@ func TestAES256GCM(t *testing.T) {
 			keyProvider2,
 			initvector.Deterministic(sha256.New),
 		)
-		_, err = cipherWithWrongKey.Decipher(ctx, nonce, cipherText)
+		_, err = cipherWithWrongKey.Decipher(ctx, nonce, cipherText, nil)
 		assert.ErrorContains(t, err, "failed")
 
 		// tampered cipher text
 		cipherText[13] = 65
-		_, err = cipher1.Decipher(ctx, nonce, cipherText)
+		_, err = cipher1.Decipher(ctx, nonce, cipherText, nil)
 		assert.ErrorContains(t, err, "failed")
 	})
 
@@ -145,11 +145,80 @@ func TestAES256GCM(t *testing.T) {
 			initvector.Deterministic(sha256.New),
 		)
 
-		_, _, err = cipher.Cipher(ctx, []byte("secret"))
+		_, _, err = cipher.Cipher(ctx, []byte("secret"), nil)
 		assert.ErrorIs(t, err, key.ErrNoKey)
 
-		_, err = cipher.Decipher(ctx, make([]byte, 12), make([]byte, 16))
+		_, err = cipher.Decipher(ctx, make([]byte, 12), make([]byte, 16), nil)
 		assert.ErrorIs(t, err, key.ErrNoKey)
+	})
+
+	t.Run("AAD support", func(t *testing.T) {
+		aad := []byte("additional-authenticated-data")
+		plainText := []byte("sensitive-data")
+
+		keyProvider, err := key.NewPBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize)
+		if err != nil {
+			t.Fatalf("failed to create key provider: %v", err)
+		}
+
+		aesCipher := cipher.NewAES256GCM(
+			keyProvider,
+			initvector.Deterministic(sha256.New),
+		)
+
+		t.Run("encrypt and decrypt with AAD", func(t *testing.T) {
+			nonce, cipherText, err := aesCipher.Cipher(ctx, plainText, aad)
+			assert.NoError(t, err)
+			assert.NotEmpty(t, cipherText)
+
+			decrypted, err := aesCipher.Decipher(ctx, nonce, cipherText, aad)
+			assert.NoError(t, err)
+			assert.Equal(t, plainText, decrypted)
+		})
+
+		t.Run("decrypt fails with wrong AAD", func(t *testing.T) {
+			nonce, cipherText, err := aesCipher.Cipher(ctx, plainText, aad)
+			assert.NoError(t, err)
+
+			wrongAAD := []byte("wrong-aad")
+			_, err = aesCipher.Decipher(ctx, nonce, cipherText, wrongAAD)
+			assert.Error(t, err)
+		})
+
+		t.Run("decrypt fails with nil AAD when encrypted with AAD", func(t *testing.T) {
+			nonce, cipherText, err := aesCipher.Cipher(ctx, plainText, aad)
+			assert.NoError(t, err)
+
+			_, err = aesCipher.Decipher(ctx, nonce, cipherText, nil)
+			assert.Error(t, err)
+		})
+
+		t.Run("different AAD produces different ciphertext", func(t *testing.T) {
+			aad1 := []byte("aad-1")
+			aad2 := []byte("aad-2")
+
+			_, cipherText1, err := aesCipher.Cipher(ctx, plainText, aad1)
+			assert.NoError(t, err)
+
+			_, cipherText2, err := aesCipher.Cipher(ctx, plainText, aad2)
+			assert.NoError(t, err)
+
+			assert.NotEqual(t, cipherText1, cipherText2)
+		})
+
+		t.Run("long AAD", func(t *testing.T) {
+			longAAD := make([]byte, 1024)
+			for i := range longAAD {
+				longAAD[i] = byte(i % 256)
+			}
+
+			nonce, cipherText, err := aesCipher.Cipher(ctx, plainText, longAAD)
+			assert.NoError(t, err)
+
+			decrypted, err := aesCipher.Decipher(ctx, nonce, cipherText, longAAD)
+			assert.NoError(t, err)
+			assert.Equal(t, plainText, decrypted)
+		})
 	})
 }
 

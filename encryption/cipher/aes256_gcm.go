@@ -32,8 +32,8 @@ func NewAES256GCM(keyProvider RotatingKeyProvider, ivGenerator InitVectorer) *AE
 	}
 }
 
-// Cipher encrypts the plaintext using AES-256-GCM.
-func (c *AES256GCM) Cipher(ctx context.Context, plainText []byte) ([]byte, []byte, error) {
+// Cipher encrypts the plaintext using AES-256-GCM with optional associated authenticated data (AAD).
+func (c *AES256GCM) Cipher(ctx context.Context, plainText []byte, aad []byte) ([]byte, []byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -58,13 +58,13 @@ func (c *AES256GCM) Cipher(ctx context.Context, plainText []byte) ([]byte, []byt
 		return nil, nil, fmt.Errorf("new GCM: %w", err)
 	}
 
-	cipherText := aesgcm.Seal(nil, nonce, plainText, nil)
+	cipherText := aesgcm.Seal(nil, nonce, plainText, aad)
 
 	return nonce, cipherText, nil
 }
 
-// Decipher decrypts the ciphertext using AES-256-GCM.
-func (c *AES256GCM) Decipher(ctx context.Context, nonce, cipherText []byte) (deciphered []byte, err error) {
+// Decipher decrypts the ciphertext using AES-256-GCM with optional associated authenticated data (AAD).
+func (c *AES256GCM) Decipher(ctx context.Context, nonce, cipherText []byte, aad []byte) (deciphered []byte, err error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -84,7 +84,7 @@ func (c *AES256GCM) Decipher(ctx context.Context, nonce, cipherText []byte) (dec
 			return nil, err
 		}
 
-		deciphered, err = c.decipher(key, nonce, cipherText)
+		deciphered, err = c.decipher(key, nonce, cipherText, aad)
 		if err == nil {
 			return
 		}
@@ -94,7 +94,7 @@ func (c *AES256GCM) Decipher(ctx context.Context, nonce, cipherText []byte) (dec
 	return nil, fmt.Errorf("decryption failed with %d key(s): %w", len(decryptionKeys), lastErr)
 }
 
-func (c *AES256GCM) decipher(decryptionKey, nonce, cipherText []byte) ([]byte, error) {
+func (c *AES256GCM) decipher(decryptionKey, nonce, cipherText []byte, aad []byte) ([]byte, error) {
 	block, err := aes.NewCipher(decryptionKey)
 	if err != nil {
 		return nil, fmt.Errorf("new cipher: %w", err)
@@ -105,7 +105,7 @@ func (c *AES256GCM) decipher(decryptionKey, nonce, cipherText []byte) ([]byte, e
 		return nil, fmt.Errorf("new GCM: %w", err)
 	}
 
-	plaintext, err := aesgcm.Open(nil, nonce, cipherText, nil)
+	plaintext, err := aesgcm.Open(nil, nonce, cipherText, aad)
 	if err != nil {
 		return nil, fmt.Errorf("aesgcm open: %w", err)
 	}

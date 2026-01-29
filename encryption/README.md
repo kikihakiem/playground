@@ -8,6 +8,7 @@ A flexible and secure text encryption library for Go with configurable ciphers, 
   - AES-256-GCM
   - ChaCha20-Poly1305
   - XChaCha20-Poly1305
+- 🔐 Optional Associated Authenticated Data (AAD) support for all AEAD ciphers
 - 🔄 Configurable IV generation (deterministic or random)
 - 🔑 Multiple key derivation functions:
   - PBKDF2 (default: 131,072 iterations)
@@ -154,6 +155,48 @@ xChachaEncryptor := encryption.New(
     encoding.NewSimpleBase64(base64.RawStdEncoding),
 )
 ```
+
+### Using Associated Authenticated Data (AAD)
+
+AAD allows you to authenticate additional data without encrypting it. This is useful for including metadata, context, or headers that need to be authenticated but don't need to be secret:
+
+```go
+keyProvider, err := key.NewPBKDF2Provider(
+    [][]byte{key},
+    salt,
+    sha256.New,
+    cipher.AES256GCMKeySize,
+)
+if err != nil {
+    panic(err)
+}
+
+encryptor := encryption.New(
+    cipher.NewAES256GCM(
+        keyProvider,
+        initvector.Random(),
+    ),
+    encoding.NewSimpleBase64(base64.RawStdEncoding),
+)
+
+// AAD is authenticated but not encrypted
+aad := []byte("user-id:12345,tenant:acme")
+plainText := []byte("sensitive-data")
+
+// Encrypt with AAD
+encrypted, err := encryptor.EncryptWithAAD(ctx, plainText, aad)
+if err != nil {
+    panic(err)
+}
+
+// Decrypt with the same AAD - must match exactly
+decrypted, err := encryptor.DecryptWithAAD(ctx, encrypted, aad)
+if err != nil {
+    panic(err) // Will fail if AAD doesn't match
+}
+```
+
+**Important**: The AAD used for decryption must exactly match the AAD used for encryption, or decryption will fail.
 
 ### Rails ActiveRecord Compatible Encryptor
 

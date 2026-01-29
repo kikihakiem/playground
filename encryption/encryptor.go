@@ -6,8 +6,8 @@ import (
 )
 
 type Cipherer interface {
-	Cipher(ctx context.Context, in []byte) (nonce, cipherText []byte, err error)
-	Decipher(ctx context.Context, nonce, cipherText []byte) (out []byte, err error)
+	Cipher(ctx context.Context, in []byte, aad []byte) (nonce, cipherText []byte, err error)
+	Decipher(ctx context.Context, nonce, cipherText []byte, aad []byte) (out []byte, err error)
 	AuthTagSize() int
 	NonceSize() int
 }
@@ -33,11 +33,17 @@ func New(cipherer Cipherer, serializer Serializer) *Encryptor {
 }
 
 func (e *Encryptor) Encrypt(ctx context.Context, plainText []byte) ([]byte, error) {
+	return e.EncryptWithAAD(ctx, plainText, nil)
+}
+
+// EncryptWithAAD encrypts the plaintext with optional associated authenticated data (AAD).
+// AAD is authenticated but not encrypted, and must match during decryption.
+func (e *Encryptor) EncryptWithAAD(ctx context.Context, plainText []byte, aad []byte) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	nonce, cipherText, err := e.Cipher(ctx, plainText)
+	nonce, cipherText, err := e.Cipher(ctx, plainText, aad)
 	if err != nil {
 		return nil, fmt.Errorf("cipher: %w", err)
 	}
@@ -51,6 +57,12 @@ func (e *Encryptor) Encrypt(ctx context.Context, plainText []byte) ([]byte, erro
 }
 
 func (e *Encryptor) Decrypt(ctx context.Context, encryptedText []byte) ([]byte, error) {
+	return e.DecryptWithAAD(ctx, encryptedText, nil)
+}
+
+// DecryptWithAAD decrypts the encrypted text with optional associated authenticated data (AAD).
+// The AAD must match the AAD used during encryption, or decryption will fail.
+func (e *Encryptor) DecryptWithAAD(ctx context.Context, encryptedText []byte, aad []byte) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -60,7 +72,7 @@ func (e *Encryptor) Decrypt(ctx context.Context, encryptedText []byte) ([]byte, 
 		return nil, fmt.Errorf("deserialize: %w", err)
 	}
 
-	plainText, err := e.Decipher(ctx, nonce, cipherText)
+	plainText, err := e.Decipher(ctx, nonce, cipherText, aad)
 	if err != nil {
 		return nil, fmt.Errorf("decipher: %w", err)
 	}

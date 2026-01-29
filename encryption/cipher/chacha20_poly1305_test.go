@@ -14,6 +14,7 @@ import (
 	"github.com/kikihakiem/playground/encryption/initvector"
 	"github.com/kikihakiem/playground/encryption/key"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestChaCha20Poly1305(t *testing.T) {
@@ -118,10 +119,10 @@ func TestChaCha20Poly1305(t *testing.T) {
 			initvector.Deterministic(sha256.New),
 		)
 
-		_, _, err = cipher.Cipher(ctx, []byte("secret"))
+		_, _, err = cipher.Cipher(ctx, []byte("secret"), nil)
 		assert.ErrorIs(t, err, key.ErrNoKey)
 
-		_, err = cipher.Decipher(ctx, make([]byte, 12), make([]byte, 16))
+		_, err = cipher.Decipher(ctx, make([]byte, 12), make([]byte, 16), nil)
 		assert.ErrorIs(t, err, key.ErrNoKey)
 	})
 	t.Run("decrypt with wrong key", func(t *testing.T) {
@@ -135,7 +136,7 @@ func TestChaCha20Poly1305(t *testing.T) {
 			keyProvider1,
 			initvector.Deterministic(sha256.New),
 		)
-		nonce, cipherText, err := cipher1.Cipher(ctx, plainText)
+		nonce, cipherText, err := cipher1.Cipher(ctx, plainText, nil)
 		assert.NoError(t, err)
 
 		// wrong key
@@ -148,12 +149,65 @@ func TestChaCha20Poly1305(t *testing.T) {
 			keyProvider2,
 			initvector.Deterministic(sha256.New),
 		)
-		_, err = cipherWithWrongKey.Decipher(ctx, nonce, cipherText)
+		_, err = cipherWithWrongKey.Decipher(ctx, nonce, cipherText, nil)
 		assert.ErrorContains(t, err, "failed")
 
 		// tampered cipher text
 		cipherText[13] = 65
-		_, err = cipher1.Decipher(ctx, nonce, cipherText)
+		_, err = cipher1.Decipher(ctx, nonce, cipherText, nil)
 		assert.ErrorContains(t, err, "failed")
+	})
+
+	t.Run("AAD support", func(t *testing.T) {
+		aad := []byte("additional-authenticated-data")
+		plainText := []byte("sensitive-data")
+
+		keyProvider, err := key.NewPBKDF2Provider([][]byte{chachaKey1}, chachaSalt, sha256.New, cipher.ChaCha20Poly1305KeySize)
+		require.NoError(t, err)
+
+		chachaCipher := cipher.NewChaCha20Poly1305(
+			keyProvider,
+			initvector.Deterministic(sha256.New),
+		)
+
+		t.Run("encrypt and decrypt with AAD", func(t *testing.T) {
+			nonce, cipherText, err := chachaCipher.Cipher(ctx, plainText, aad)
+			assert.NoError(t, err)
+			assert.NotEmpty(t, cipherText)
+
+			decrypted, err := chachaCipher.Decipher(ctx, nonce, cipherText, aad)
+			assert.NoError(t, err)
+			assert.Equal(t, plainText, decrypted)
+		})
+
+		t.Run("decrypt fails with wrong AAD", func(t *testing.T) {
+			nonce, cipherText, err := chachaCipher.Cipher(ctx, plainText, aad)
+			assert.NoError(t, err)
+
+			wrongAAD := []byte("wrong-aad")
+			_, err = chachaCipher.Decipher(ctx, nonce, cipherText, wrongAAD)
+			assert.Error(t, err)
+		})
+
+		t.Run("decrypt fails with nil AAD when encrypted with AAD", func(t *testing.T) {
+			nonce, cipherText, err := chachaCipher.Cipher(ctx, plainText, aad)
+			assert.NoError(t, err)
+
+			_, err = chachaCipher.Decipher(ctx, nonce, cipherText, nil)
+			assert.Error(t, err)
+		})
+
+		t.Run("different AAD produces different ciphertext", func(t *testing.T) {
+			aad1 := []byte("aad-1")
+			aad2 := []byte("aad-2")
+
+			_, cipherText1, err := chachaCipher.Cipher(ctx, plainText, aad1)
+			assert.NoError(t, err)
+
+			_, cipherText2, err := chachaCipher.Cipher(ctx, plainText, aad2)
+			assert.NoError(t, err)
+
+			assert.NotEqual(t, cipherText1, cipherText2)
+		})
 	})
 }

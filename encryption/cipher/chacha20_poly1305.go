@@ -35,8 +35,8 @@ func NewChaCha20Poly1305(keyProvider RotatingKeyProvider, ivGenerator InitVector
 	}
 }
 
-// Cipher encrypts the plaintext using ChaCha20-Poly1305.
-func (c *ChaCha20Poly1305) Cipher(ctx context.Context, plainText []byte) ([]byte, []byte, error) {
+// Cipher encrypts the plaintext using ChaCha20-Poly1305 with optional associated authenticated data (AAD).
+func (c *ChaCha20Poly1305) Cipher(ctx context.Context, plainText []byte, aad []byte) ([]byte, []byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -56,13 +56,13 @@ func (c *ChaCha20Poly1305) Cipher(ctx context.Context, plainText []byte) ([]byte
 		return nil, nil, fmt.Errorf("create cipher: %w", err)
 	}
 
-	cipherText := aead.Seal(nil, nonce, plainText, nil)
+	cipherText := aead.Seal(nil, nonce, plainText, aad)
 
 	return nonce, cipherText, nil
 }
 
-// Decipher decrypts the ciphertext using ChaCha20-Poly1305.
-func (c *ChaCha20Poly1305) Decipher(ctx context.Context, nonce, cipherText []byte) ([]byte, error) {
+// Decipher decrypts the ciphertext using ChaCha20-Poly1305 with optional associated authenticated data (AAD).
+func (c *ChaCha20Poly1305) Decipher(ctx context.Context, nonce, cipherText []byte, aad []byte) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func (c *ChaCha20Poly1305) Decipher(ctx context.Context, nonce, cipherText []byt
 			continue
 		}
 
-		plainText, err := aead.Open(nil, nonce, cipherText, nil)
+		plainText, err := aead.Open(nil, nonce, cipherText, aad)
 		if err == nil {
 			return plainText, nil
 		}
