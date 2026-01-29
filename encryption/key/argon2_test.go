@@ -9,14 +9,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestArgon2Provider(t *testing.T) {
+func TestNewArgon2Provider(t *testing.T) {
 	salt := []byte("test-salt")
 	plainKey1 := []byte("key1")
 	plainKey2 := []byte("key2")
 
 	t.Run("custom key size", func(t *testing.T) {
 		customSize := 24
-		provider, err := Argon2Provider(
+		provider, err := NewArgon2Provider(
 			[][]byte{plainKey1},
 			salt,
 			customSize,
@@ -31,7 +31,7 @@ func TestArgon2Provider(t *testing.T) {
 
 	t.Run("custom parameters", func(t *testing.T) {
 		// Create two providers with different parameters
-		provider1, err := Argon2Provider(
+		provider1, err := NewArgon2Provider(
 			[][]byte{plainKey1},
 			salt,
 			32,
@@ -41,7 +41,7 @@ func TestArgon2Provider(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		provider2, err := Argon2Provider(
+		provider2, err := NewArgon2Provider(
 			[][]byte{plainKey1},
 			salt,
 			32,
@@ -62,7 +62,7 @@ func TestArgon2Provider(t *testing.T) {
 	})
 
 	t.Run("multiple keys", func(t *testing.T) {
-		provider, err := Argon2Provider(
+		provider, err := NewArgon2Provider(
 			[][]byte{plainKey1, plainKey2},
 			salt,
 			32,
@@ -84,14 +84,14 @@ func TestArgon2Provider(t *testing.T) {
 	})
 
 	t.Run("derived keys should be consistent", func(t *testing.T) {
-		provider1, err := Argon2Provider(
+		provider1, err := NewArgon2Provider(
 			[][]byte{plainKey1},
 			salt,
 			32,
 		)
 		require.NoError(t, err)
 
-		provider2, err := Argon2Provider(
+		provider2, err := NewArgon2Provider(
 			[][]byte{plainKey1},
 			salt,
 			32,
@@ -107,7 +107,7 @@ func TestArgon2Provider(t *testing.T) {
 	})
 
 	t.Run("no key", func(t *testing.T) {
-		provider, err := Argon2Provider(
+		provider, err := NewArgon2Provider(
 			[][]byte{},
 			salt,
 			32,
@@ -123,7 +123,7 @@ func TestArgon2Provider(t *testing.T) {
 
 	t.Run("validation errors", func(t *testing.T) {
 		t.Run("key length too small", func(t *testing.T) {
-			_, err := Argon2Provider(
+			_, err := NewArgon2Provider(
 				[][]byte{plainKey1},
 				salt,
 				8, // Below MinKeyLength
@@ -133,7 +133,7 @@ func TestArgon2Provider(t *testing.T) {
 		})
 
 		t.Run("salt too short", func(t *testing.T) {
-			_, err := Argon2Provider(
+			_, err := NewArgon2Provider(
 				[][]byte{plainKey1},
 				[]byte("short"), // Only 5 bytes
 				32,
@@ -143,7 +143,7 @@ func TestArgon2Provider(t *testing.T) {
 		})
 
 		t.Run("time parameter too low", func(t *testing.T) {
-			_, err := Argon2Provider(
+			_, err := NewArgon2Provider(
 				[][]byte{plainKey1},
 				salt,
 				32,
@@ -154,7 +154,7 @@ func TestArgon2Provider(t *testing.T) {
 		})
 
 		t.Run("memory parameter too low", func(t *testing.T) {
-			_, err := Argon2Provider(
+			_, err := NewArgon2Provider(
 				[][]byte{plainKey1},
 				salt,
 				32,
@@ -165,7 +165,7 @@ func TestArgon2Provider(t *testing.T) {
 		})
 
 		t.Run("parallelism parameter too low", func(t *testing.T) {
-			_, err := Argon2Provider(
+			_, err := NewArgon2Provider(
 				[][]byte{plainKey1},
 				salt,
 				32,
@@ -176,7 +176,7 @@ func TestArgon2Provider(t *testing.T) {
 		})
 
 		t.Run("empty key", func(t *testing.T) {
-			_, err := Argon2Provider(
+			_, err := NewArgon2Provider(
 				[][]byte{[]byte("")},
 				salt,
 				32,

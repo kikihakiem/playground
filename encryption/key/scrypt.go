@@ -22,36 +22,41 @@ const (
 	scryptDefaultP = 1
 )
 
-type ScryptOption func(*scryptProvider)
-
-func ScryptN(n int) ScryptOption {
-	return func(sp *scryptProvider) {
-		sp.N = n
-	}
-}
-
-func ScryptR(r int) ScryptOption {
-	return func(sp *scryptProvider) {
-		sp.r = r
-	}
-}
-
-func ScryptP(p int) ScryptOption {
-	return func(sp *scryptProvider) {
-		sp.p = p
-	}
-}
-
-type scryptProvider struct {
+// ScryptProvider manages keys derived using scrypt.
+type ScryptProvider struct {
 	keys [][]byte
 	N    int
 	r    int
 	p    int
 }
 
-// ScryptProvider creates a key provider using scrypt key derivation.
+// ScryptOption is a function option for configuring ScryptProvider.
+type ScryptOption func(*ScryptProvider)
+
+// ScryptN sets the CPU/memory cost parameter N.
+func ScryptN(n int) ScryptOption {
+	return func(sp *ScryptProvider) {
+		sp.N = n
+	}
+}
+
+// ScryptR sets the block size parameter r.
+func ScryptR(r int) ScryptOption {
+	return func(sp *ScryptProvider) {
+		sp.r = r
+	}
+}
+
+// ScryptP sets the parallelization parameter p.
+func ScryptP(p int) ScryptOption {
+	return func(sp *ScryptProvider) {
+		sp.p = p
+	}
+}
+
+// NewScryptProvider creates a key provider using scrypt key derivation.
 // Returns an error if key derivation fails or parameters don't meet minimum security requirements.
-func ScryptProvider(keys [][]byte, salt []byte, keyLength int, options ...ScryptOption) (*scryptProvider, error) {
+func NewScryptProvider(keys [][]byte, salt []byte, keyLength int, options ...ScryptOption) (*ScryptProvider, error) {
 	if keyLength < MinKeyLength {
 		return nil, fmt.Errorf("key length %d is below minimum %d bytes", keyLength, MinKeyLength)
 	}
@@ -60,7 +65,7 @@ func ScryptProvider(keys [][]byte, salt []byte, keyLength int, options ...Scrypt
 		return nil, fmt.Errorf("salt length %d is below minimum 8 bytes", len(salt))
 	}
 
-	provider := &scryptProvider{
+	provider := &ScryptProvider{
 		N: scryptDefaultN,
 		r: scryptDefaultR,
 		p: scryptDefaultP,
@@ -98,7 +103,8 @@ func ScryptProvider(keys [][]byte, salt []byte, keyLength int, options ...Scrypt
 	return provider, nil
 }
 
-func (p *scryptProvider) EncryptionKey() ([]byte, error) {
+// EncryptionKey returns the primary key used for encryption (the most recent one).
+func (p *ScryptProvider) EncryptionKey() ([]byte, error) {
 	if len(p.keys) == 0 {
 		return nil, ErrNoKey
 	}
@@ -106,7 +112,8 @@ func (p *scryptProvider) EncryptionKey() ([]byte, error) {
 	return p.keys[0], nil
 }
 
-func (p *scryptProvider) DecryptionKeys() ([][]byte, error) {
+// DecryptionKeys returns all available keys for decryption.
+func (p *ScryptProvider) DecryptionKeys() ([][]byte, error) {
 	if len(p.keys) == 0 {
 		return nil, ErrNoKey
 	}

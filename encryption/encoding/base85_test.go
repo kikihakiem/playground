@@ -13,7 +13,7 @@ func TestBase85(t *testing.T) {
 	base85Encrypted := []byte("<~6UX@;D/XQ9E&4f4@:X0fDfTD/0JYE+EV:AH~>")
 
 	t.Run("happy path", func(t *testing.T) {
-		encoder := encoding.Base85()
+		encoder := encoding.NewBase85()
 
 		// Test serialize
 		nonce := []byte("test-nonce12")
@@ -38,13 +38,13 @@ func TestBase85(t *testing.T) {
 	})
 
 	t.Run("truncated encrypted text", func(t *testing.T) {
-		encoder := encoding.Base85()
+		encoder := encoding.NewBase85()
 		_, _, err := encoder.Deserialize(base85Encrypted[:15], 16, 12)
 		assert.ErrorContains(t, err, "truncated")
 	})
 
 	t.Run("invalid base85 encoding", func(t *testing.T) {
-		encoder := encoding.Base85()
+		encoder := encoding.NewBase85()
 		_, _, err := encoder.Deserialize([]byte("invalid base85!"), 16, 12)
 		assert.Error(t, err)
 	})

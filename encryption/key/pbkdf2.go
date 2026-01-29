@@ -20,24 +20,28 @@ const (
 	MinKeyLength = 16 // 128 bits
 )
 
-type pbkdf2Provider struct {
+// PBKDF2Provider manages keys derived using PBKDF2.
+type PBKDF2Provider struct {
 	keys       [][]byte
 	iterations int
 }
 
-type PBKDF2Option func(*pbkdf2Provider)
+// PBKDF2Option is a function option for configuring PBKDF2Provider.
+type PBKDF2Option func(*PBKDF2Provider)
 
+// PBKDF2Iterations sets the number of iterations for PBKDF2 key derivation.
 func PBKDF2Iterations(n int) PBKDF2Option {
-	return func(pkp *pbkdf2Provider) {
+	return func(pkp *PBKDF2Provider) {
 		pkp.iterations = n
 	}
 }
 
+// ErrNoKey is returned when no keys are available for encryption or decryption.
 var ErrNoKey = errors.New("no key")
 
-// PBKDF2Provider creates a key provider using PBKDF2 key derivation.
+// NewPBKDF2Provider creates a key provider using PBKDF2 key derivation.
 // Returns an error if parameters don't meet minimum security requirements.
-func PBKDF2Provider(plainKeys [][]byte, salt []byte, hashFunc func() hash.Hash, keyLength int, options ...PBKDF2Option) (*pbkdf2Provider, error) {
+func NewPBKDF2Provider(plainKeys [][]byte, salt []byte, hashFunc func() hash.Hash, keyLength int, options ...PBKDF2Option) (*PBKDF2Provider, error) {
 	if keyLength < MinKeyLength {
 		return nil, fmt.Errorf("key length %d is below minimum %d bytes", keyLength, MinKeyLength)
 	}
@@ -46,7 +50,7 @@ func PBKDF2Provider(plainKeys [][]byte, salt []byte, hashFunc func() hash.Hash, 
 		return nil, fmt.Errorf("salt length %d is below minimum 8 bytes", len(salt))
 	}
 
-	keyProvider := &pbkdf2Provider{
+	keyProvider := &PBKDF2Provider{
 		iterations: pbkdf2DefaultIterations,
 	}
 
@@ -75,7 +79,8 @@ func PBKDF2Provider(plainKeys [][]byte, salt []byte, hashFunc func() hash.Hash, 
 	return keyProvider, nil
 }
 
-func (kp *pbkdf2Provider) EncryptionKey() ([]byte, error) {
+// EncryptionKey returns the primary key used for encryption (the most recent one).
+func (kp *PBKDF2Provider) EncryptionKey() ([]byte, error) {
 	if len(kp.keys) == 0 {
 		return nil, ErrNoKey
 	}
@@ -83,7 +88,8 @@ func (kp *pbkdf2Provider) EncryptionKey() ([]byte, error) {
 	return kp.keys[0], nil // always encrypt using the latest key
 }
 
-func (kp *pbkdf2Provider) DecryptionKeys() ([][]byte, error) {
+// DecryptionKeys returns all available keys for decryption.
+func (kp *PBKDF2Provider) DecryptionKeys() ([][]byte, error) {
 	if len(kp.keys) == 0 {
 		return nil, ErrNoKey
 	}

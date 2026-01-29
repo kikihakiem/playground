@@ -7,13 +7,16 @@ import (
 	"github.com/kikihakiem/playground/encryption"
 )
 
-type base85 struct{}
+// Base85Serializer implements Serializer using Ascii85 encoding.
+type Base85Serializer struct{}
 
-func Base85() *base85 {
-	return &base85{}
+// NewBase85 creates a new Base85Serializer.
+func NewBase85() *Base85Serializer {
+	return &Base85Serializer{}
 }
 
-func (b base85) Serialize(nonce, cipherText []byte, authTagSize, nonceSize int) ([]byte, error) {
+// Serialize encodes the nonce and ciphertext into an Ascii85 byte slice.
+func (b Base85Serializer) Serialize(nonce, cipherText []byte, authTagSize, nonceSize int) ([]byte, error) {
 	cipherTextWithNonce := append(nonce, cipherText...)
 	maxLen := ascii85.MaxEncodedLen(len(cipherTextWithNonce)) + 4 // +4 for <~ and ~>
 	encoded := make([]byte, maxLen)
@@ -32,7 +35,8 @@ func (b base85) Serialize(nonce, cipherText []byte, authTagSize, nonceSize int) 
 	return encoded[:n+4], nil
 }
 
-func (b base85) Deserialize(encoded []byte, authTagSize, nonceSize int) ([]byte, []byte, error) {
+// Deserialize decodes the Ascii85 byte slice into nonce and ciphertext.
+func (b Base85Serializer) Deserialize(encoded []byte, authTagSize, nonceSize int) ([]byte, []byte, error) {
 	// Check for minimum length
 	if len(encoded) < 4 {
 		return nil, nil, encryption.ErrTruncated

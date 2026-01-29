@@ -68,7 +68,7 @@ func main() {
     plainText := []byte("Hello, World!")
 
     // Create key provider with error handling
-    keyProvider, err := key.PBKDF2Provider(
+    keyProvider, err := key.NewPBKDF2Provider(
         [][]byte{key},
         salt,
         sha256.New,
@@ -80,11 +80,11 @@ func main() {
 
     // Create a deterministic encryptor with AES-256-GCM
     deterministicEncryptor := encryption.New(
-        cipher.AES256GCM(
+        cipher.NewAES256GCM(
             keyProvider,
             initvector.Deterministic(sha256.New),
         ),
-        encoding.SimpleBase64(base64.RawStdEncoding),
+        encoding.NewSimpleBase64(base64.RawStdEncoding),
     )
 
     // Encrypt the plain text
@@ -108,7 +108,7 @@ func main() {
 Scrypt key provider with its options:
 
 ```go
-scryptKeyProvider, err := key.ScryptProvider(
+scryptKeyProvider, err := key.NewScryptProvider(
     [][]byte{key},
     salt,
     32, // key length
@@ -124,7 +124,7 @@ if err != nil {
 Argon2 key provider with its options:
 
 ```go
-argon2KeyProvider := key.Argon2Provider(
+argon2KeyProvider, err := key.NewArgon2Provider(
     [][]byte{key},
     salt,
     32,
@@ -132,35 +132,48 @@ argon2KeyProvider := key.Argon2Provider(
     key.Argon2Memory(64*1024),
     key.Argon2Parallelism(4),
 )
+if err != nil {
+    panic(err)
+}
 ```
 
 ### Using Extended ChaCha20-Poly1305
 
 ```go
+argon2KeyProvider, err := key.NewArgon2Provider([][]byte{key}, salt, cipher.ChaCha20Poly1305KeySize)
+if err != nil {
+    panic(err)
+}
+
 xChachaEncryptor := encryption.New(
-    cipher.XChaCha20Poly1305(
-        key.Argon2Provider([][]byte{key}, salt, cipher.ChaCha20Poly1305KeySize),
+    cipher.NewXChaCha20Poly1305(
+        argon2KeyProvider,
         initvector.Random(),
     ),
-    encoding.SimpleBase64(base64.RawStdEncoding),
+    encoding.NewSimpleBase64(base64.RawStdEncoding),
 )
 ```
 
 ### Rails ActiveRecord Compatible Encryptor
 
 ```go
+pbkdf2KeyProvider, err := key.NewPBKDF2Provider(
+    [][]byte{key},
+    salt,
+    sha1.New,
+    cipher.AES256GCMKeySize,
+    key.PBKDF2Iterations(1<<16),
+)
+if err != nil {
+    panic(err)
+}
+
 railsCompatibleEncryptor := encryption.New(
-    cipher.AES256GCM(
-        key.PBKDF2Provider(
-            [][]byte{key},
-            salt,
-            sha1.New,
-            cipher.AES256GCMKeySize,
-            key.PBKDF2Iterations(1<<16),
-        ),
+    cipher.NewAES256GCM(
+        pbkdf2KeyProvider,
         initvector.Random(),
     ),
-    encoding.JSONBase64(base64.StdEncoding),
+    encoding.NewJSONBase64(base64.StdEncoding),
 )
 ```
 

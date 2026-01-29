@@ -13,7 +13,7 @@ import (
 func TestJSONBase64(t *testing.T) {
 	base64JSONEncrypted := []byte(`{"p":"lEMctSYVzhJvYJZKTzSsStfbqugE8VTtPj6wBw1x","h":{"iv":"E9qSpdOfUMtrveT/","at":"QaBeEg/rnKGEjzi1sciVoQ=="}}`)
 	t.Run("happy path", func(t *testing.T) {
-		encoder := encoding.JSONBase64(base64.StdEncoding)
+		encoder := encoding.NewJSONBase64(base64.StdEncoding)
 
 		// Test serialize
 		nonce := []byte("test-nonce")
@@ -38,7 +38,7 @@ func TestJSONBase64(t *testing.T) {
 	})
 
 	t.Run("truncated cipher text", func(t *testing.T) {
-		encoder := encoding.JSONBase64(base64.RawStdEncoding)
+		encoder := encoding.NewJSONBase64(base64.RawStdEncoding)
 
 		// Test truncated cipher text
 		cipherText := make([]byte, 15)
@@ -51,7 +51,7 @@ func TestJSONBase64(t *testing.T) {
 	})
 
 	t.Run("deserialize errors", func(t *testing.T) {
-		encoder := encoding.JSONBase64(base64.RawStdEncoding)
+		encoder := encoding.NewJSONBase64(base64.RawStdEncoding)
 
 		// Test invalid JSON
 		_, _, err := encoder.Deserialize([]byte("aW52YWxpZCBKU09O"), 16, 12)

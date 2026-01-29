@@ -7,15 +7,18 @@ import (
 	"github.com/kikihakiem/playground/encryption"
 )
 
-type simpleBase64 struct {
+// SimpleBase64 implements Serializer using standard Base64 encoding.
+type SimpleBase64 struct {
 	*base64.Encoding
 }
 
-func SimpleBase64(enc *base64.Encoding) *simpleBase64 {
-	return &simpleBase64{enc}
+// NewSimpleBase64 creates a new SimpleBase64 serializer with the given encoding.
+func NewSimpleBase64(enc *base64.Encoding) *SimpleBase64 {
+	return &SimpleBase64{enc}
 }
 
-func (s simpleBase64) Serialize(nonce, cipherText []byte, authTagSize, nonceSize int) ([]byte, error) {
+// Serialize encodes the nonce and ciphertext into a single Base64 byte slice.
+func (s SimpleBase64) Serialize(nonce, cipherText []byte, authTagSize, nonceSize int) ([]byte, error) {
 	cipherTextWithNonce := append(nonce, cipherText...)
 	encoded := make([]byte, s.EncodedLen(len(cipherTextWithNonce)))
 	s.Encode(encoded, cipherTextWithNonce)
@@ -23,7 +26,8 @@ func (s simpleBase64) Serialize(nonce, cipherText []byte, authTagSize, nonceSize
 	return encoded, nil
 }
 
-func (s simpleBase64) Deserialize(encoded []byte, authTagSize, nonceSize int) ([]byte, []byte, error) {
+// Deserialize decodes the Base64 byte slice into nonce and ciphertext.
+func (s SimpleBase64) Deserialize(encoded []byte, authTagSize, nonceSize int) ([]byte, []byte, error) {
 	decoded := make([]byte, s.DecodedLen(len(encoded)))
 	n, err := s.Decode(decoded, encoded)
 	if err != nil {
@@ -34,5 +38,5 @@ func (s simpleBase64) Deserialize(encoded []byte, authTagSize, nonceSize int) ([
 		return nil, nil, encryption.ErrTruncated
 	}
 
-	return decoded[:nonceSize], decoded[nonceSize:], nil
+	return decoded[:nonceSize], decoded[nonceSize:n], nil
 }

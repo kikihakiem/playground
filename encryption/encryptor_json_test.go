@@ -24,30 +24,30 @@ func TestEncryptorJSON(t *testing.T) {
 	plainText3 := []byte("predovic.eugena.dc@bobobox.com")
 	plainText4 := []byte("Jl. Setapak Gg. Buntu")
 
-	keyProvider1, err := key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize)
+	keyProvider1, err := key.NewPBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize)
 	if err != nil {
 		t.Fatalf("failed to create key provider 1: %v", err)
 	}
 
 	deterministicEncryptor := encryption.New(
-		cipher.AES256GCM(
+		cipher.NewAES256GCM(
 			keyProvider1,
 			initvector.Deterministic(sha256.New),
 		),
-		encoding.JSONBase64(base64.StdEncoding),
+		encoding.NewJSONBase64(base64.StdEncoding),
 	)
 
-	keyProvider2, err := key.PBKDF2Provider([][]byte{key2}, salt, sha1.New, 32, key.PBKDF2Iterations(key.MinPBKDF2Iterations))
+	keyProvider2, err := key.NewPBKDF2Provider([][]byte{key2}, salt, sha1.New, 32, key.PBKDF2Iterations(key.MinPBKDF2Iterations))
 	if err != nil {
 		t.Fatalf("failed to create key provider 2: %v", err)
 	}
 
 	nonDeterministicEncryptor := encryption.New(
-		cipher.AES256GCM(
+		cipher.NewAES256GCM(
 			keyProvider2,
 			initvector.Random(),
 		),
-		encoding.JSONBase64(base64.StdEncoding),
+		encoding.NewJSONBase64(base64.StdEncoding),
 	)
 
 	t.Run("deterministic encrypt", func(t *testing.T) {

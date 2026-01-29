@@ -10,14 +10,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPBKDF2Provider(t *testing.T) {
+func TestNewPBKDF2Provider(t *testing.T) {
 	salt := []byte("test-salt")
 	plainKey1 := []byte("key1")
 	plainKey2 := []byte("key2")
 
 	t.Run("custom key size", func(t *testing.T) {
 		customSize := 24
-		provider, err := PBKDF2Provider(
+		provider, err := NewPBKDF2Provider(
 			[][]byte{plainKey1},
 			salt,
 			sha256.New,
@@ -33,7 +33,7 @@ func TestPBKDF2Provider(t *testing.T) {
 
 	t.Run("custom iterations", func(t *testing.T) {
 		// Create two providers with different iterations (both above minimum)
-		provider1, err := PBKDF2Provider(
+		provider1, err := NewPBKDF2Provider(
 			[][]byte{plainKey1},
 			salt,
 			sha256.New,
@@ -42,7 +42,7 @@ func TestPBKDF2Provider(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		provider2, err := PBKDF2Provider(
+		provider2, err := NewPBKDF2Provider(
 			[][]byte{plainKey1},
 			salt,
 			sha256.New,
@@ -63,7 +63,7 @@ func TestPBKDF2Provider(t *testing.T) {
 		customSize := 24
 		customIterations := MinPBKDF2Iterations
 
-		provider, err := PBKDF2Provider(
+		provider, err := NewPBKDF2Provider(
 			[][]byte{plainKey1},
 			salt,
 			sha256.New,
@@ -79,7 +79,7 @@ func TestPBKDF2Provider(t *testing.T) {
 	})
 
 	t.Run("multiple keys", func(t *testing.T) {
-		provider, err := PBKDF2Provider(
+		provider, err := NewPBKDF2Provider(
 			[][]byte{plainKey1, plainKey2},
 			salt,
 			sha256.New,
@@ -102,7 +102,7 @@ func TestPBKDF2Provider(t *testing.T) {
 	})
 
 	t.Run("derived keys should be consistent", func(t *testing.T) {
-		provider1, err := PBKDF2Provider(
+		provider1, err := NewPBKDF2Provider(
 			[][]byte{plainKey1},
 			salt,
 			sha256.New,
@@ -110,7 +110,7 @@ func TestPBKDF2Provider(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		provider2, err := PBKDF2Provider(
+		provider2, err := NewPBKDF2Provider(
 			[][]byte{plainKey1},
 			salt,
 			sha256.New,
@@ -127,7 +127,7 @@ func TestPBKDF2Provider(t *testing.T) {
 	})
 
 	t.Run("no key", func(t *testing.T) {
-		provider, err := PBKDF2Provider(
+		provider, err := NewPBKDF2Provider(
 			[][]byte{},
 			salt,
 			sha256.New,
@@ -144,7 +144,7 @@ func TestPBKDF2Provider(t *testing.T) {
 
 	t.Run("validation errors", func(t *testing.T) {
 		t.Run("key length too small", func(t *testing.T) {
-			_, err := PBKDF2Provider(
+			_, err := NewPBKDF2Provider(
 				[][]byte{plainKey1},
 				salt,
 				sha256.New,
@@ -155,7 +155,7 @@ func TestPBKDF2Provider(t *testing.T) {
 		})
 
 		t.Run("salt too short", func(t *testing.T) {
-			_, err := PBKDF2Provider(
+			_, err := NewPBKDF2Provider(
 				[][]byte{plainKey1},
 				[]byte("short"), // Only 5 bytes
 				sha256.New,
@@ -166,7 +166,7 @@ func TestPBKDF2Provider(t *testing.T) {
 		})
 
 		t.Run("iterations too low", func(t *testing.T) {
-			_, err := PBKDF2Provider(
+			_, err := NewPBKDF2Provider(
 				[][]byte{plainKey1},
 				salt,
 				sha256.New,
@@ -178,7 +178,7 @@ func TestPBKDF2Provider(t *testing.T) {
 		})
 
 		t.Run("empty key", func(t *testing.T) {
-			_, err := PBKDF2Provider(
+			_, err := NewPBKDF2Provider(
 				[][]byte{[]byte("")},
 				salt,
 				sha256.New,

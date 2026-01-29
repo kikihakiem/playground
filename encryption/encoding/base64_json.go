@@ -56,15 +56,19 @@ func newBase64JSON(nonce, payload, authTag []byte, encoder *base64.Encoding) bas
 	}
 }
 
-type jsonBase64 struct {
+// JSONBase64Serializer implements Serializer using JSON with Base64 encoding.
+// This format is compatible with Rails ActiveRecord encryption.
+type JSONBase64Serializer struct {
 	*base64.Encoding
 }
 
-func JSONBase64(enc *base64.Encoding) *jsonBase64 {
-	return &jsonBase64{enc}
+// NewJSONBase64 creates a new JSONBase64Serializer with the given encoding.
+func NewJSONBase64(enc *base64.Encoding) *JSONBase64Serializer {
+	return &JSONBase64Serializer{enc}
 }
 
-func (j jsonBase64) Serialize(nonce, cipherText []byte, authTagSize, nonceSize int) ([]byte, error) {
+// Serialize encodes the nonce and ciphertext into a JSON byte slice.
+func (j JSONBase64Serializer) Serialize(nonce, cipherText []byte, authTagSize, nonceSize int) ([]byte, error) {
 	if len(cipherText) < authTagSize {
 		return nil, encryption.ErrTruncated
 	}
@@ -79,7 +83,8 @@ func (j jsonBase64) Serialize(nonce, cipherText []byte, authTagSize, nonceSize i
 	return encoded, nil
 }
 
-func (j jsonBase64) Deserialize(encoded []byte, authTagSize, nonceSize int) ([]byte, []byte, error) {
+// Deserialize decodes the JSON byte slice into nonce and ciphertext.
+func (j JSONBase64Serializer) Deserialize(encoded []byte, authTagSize, nonceSize int) ([]byte, []byte, error) {
 	decoded := newBase64JSON(nil, nil, nil, j.Encoding)
 
 	err := json.Unmarshal(encoded, &decoded)

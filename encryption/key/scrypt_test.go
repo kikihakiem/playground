@@ -9,14 +9,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestScryptProvider(t *testing.T) {
+func TestNewScryptProvider(t *testing.T) {
 	salt := []byte("test-salt")
 	plainKey1 := []byte("key1")
 	plainKey2 := []byte("key2")
 
 	t.Run("custom key size", func(t *testing.T) {
 		customSize := 24
-		provider, err := ScryptProvider(
+		provider, err := NewScryptProvider(
 			[][]byte{plainKey1},
 			salt,
 			customSize,
@@ -31,7 +31,7 @@ func TestScryptProvider(t *testing.T) {
 
 	t.Run("custom parameters", func(t *testing.T) {
 		// Create two providers with different parameters
-		provider1, err := ScryptProvider(
+		provider1, err := NewScryptProvider(
 			[][]byte{plainKey1},
 			salt,
 			32,
@@ -41,7 +41,7 @@ func TestScryptProvider(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		provider2, err := ScryptProvider(
+		provider2, err := NewScryptProvider(
 			[][]byte{plainKey1},
 			salt,
 			32,
@@ -62,7 +62,7 @@ func TestScryptProvider(t *testing.T) {
 	})
 
 	t.Run("multiple keys", func(t *testing.T) {
-		provider, err := ScryptProvider(
+		provider, err := NewScryptProvider(
 			[][]byte{plainKey1, plainKey2},
 			salt,
 			32,
@@ -84,14 +84,14 @@ func TestScryptProvider(t *testing.T) {
 	})
 
 	t.Run("derived keys should be consistent", func(t *testing.T) {
-		provider1, err := ScryptProvider(
+		provider1, err := NewScryptProvider(
 			[][]byte{plainKey1},
 			salt,
 			32,
 		)
 		require.NoError(t, err)
 
-		provider2, err := ScryptProvider(
+		provider2, err := NewScryptProvider(
 			[][]byte{plainKey1},
 			salt,
 			32,
@@ -107,7 +107,7 @@ func TestScryptProvider(t *testing.T) {
 	})
 
 	t.Run("no key", func(t *testing.T) {
-		provider, err := ScryptProvider(
+		provider, err := NewScryptProvider(
 			[][]byte{},
 			salt,
 			32,
@@ -124,7 +124,7 @@ func TestScryptProvider(t *testing.T) {
 	t.Run("invalid r*p returns error", func(t *testing.T) {
 		// Set r and p values that when multiplied exceed 1073741824 (2^30)
 		// This will cause scrypt.Key() to fail and ScryptProvider should return an error
-		_, err := ScryptProvider(
+		_, err := NewScryptProvider(
 			[][]byte{plainKey1},
 			salt,
 			32,
@@ -139,7 +139,7 @@ func TestScryptProvider(t *testing.T) {
 
 	t.Run("validation errors", func(t *testing.T) {
 		t.Run("key length too small", func(t *testing.T) {
-			_, err := ScryptProvider(
+			_, err := NewScryptProvider(
 				[][]byte{plainKey1},
 				salt,
 				8, // Below MinKeyLength
@@ -149,7 +149,7 @@ func TestScryptProvider(t *testing.T) {
 		})
 
 		t.Run("salt too short", func(t *testing.T) {
-			_, err := ScryptProvider(
+			_, err := NewScryptProvider(
 				[][]byte{plainKey1},
 				[]byte("short"), // Only 5 bytes
 				32,
@@ -159,7 +159,7 @@ func TestScryptProvider(t *testing.T) {
 		})
 
 		t.Run("N parameter too low", func(t *testing.T) {
-			_, err := ScryptProvider(
+			_, err := NewScryptProvider(
 				[][]byte{plainKey1},
 				salt,
 				32,
@@ -170,7 +170,7 @@ func TestScryptProvider(t *testing.T) {
 		})
 
 		t.Run("r parameter too low", func(t *testing.T) {
-			_, err := ScryptProvider(
+			_, err := NewScryptProvider(
 				[][]byte{plainKey1},
 				salt,
 				32,
@@ -181,7 +181,7 @@ func TestScryptProvider(t *testing.T) {
 		})
 
 		t.Run("p parameter too low", func(t *testing.T) {
-			_, err := ScryptProvider(
+			_, err := NewScryptProvider(
 				[][]byte{plainKey1},
 				salt,
 				32,
@@ -192,7 +192,7 @@ func TestScryptProvider(t *testing.T) {
 		})
 
 		t.Run("empty key", func(t *testing.T) {
-			_, err := ScryptProvider(
+			_, err := NewScryptProvider(
 				[][]byte{[]byte("")},
 				salt,
 				32,

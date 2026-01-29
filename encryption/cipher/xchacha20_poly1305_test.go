@@ -23,7 +23,7 @@ func TestXChaCha20Poly1305(t *testing.T) {
 		xchachaPlainText = []byte("Hello XChaCha20-Poly1305!")
 	)
 
-	scryptKeyProvider, err := key.ScryptProvider(
+	scryptKeyProvider, err := key.NewScryptProvider(
 		[][]byte{xchachaKey1},
 		xchachaSalt,
 		cipher.ChaCha20Poly1305KeySize,
@@ -31,19 +31,19 @@ func TestXChaCha20Poly1305(t *testing.T) {
 	require.NoError(t, err)
 
 	deterministicXChaCha := encryption.New(
-		cipher.XChaCha20Poly1305(
+		cipher.NewXChaCha20Poly1305(
 			scryptKeyProvider,
 			initvector.Deterministic(sha256.New),
 		),
-		encoding.SimpleBase64(base64.RawStdEncoding),
+		encoding.NewSimpleBase64(base64.RawStdEncoding),
 	)
 
 	nonDeterministicXChaCha := encryption.New(
-		cipher.XChaCha20Poly1305(
+		cipher.NewXChaCha20Poly1305(
 			scryptKeyProvider,
 			initvector.Random(),
 		),
-		encoding.SimpleBase64(base64.RawStdEncoding),
+		encoding.NewSimpleBase64(base64.RawStdEncoding),
 	)
 
 	t.Run("deterministic encryption", func(t *testing.T) {

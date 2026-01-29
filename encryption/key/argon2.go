@@ -22,36 +22,41 @@ const (
 	argon2DefaultParallelism = 4
 )
 
-type argon2Provider struct {
+// Argon2Provider manages keys derived using Argon2id.
+type Argon2Provider struct {
 	keys        [][]byte
 	time        uint32
 	memory      uint32
 	parallelism uint8
 }
 
-type Argon2Option func(*argon2Provider)
+// Argon2Option is a function option for configuring Argon2Provider.
+type Argon2Option func(*Argon2Provider)
 
+// Argon2Time sets the time parameter (iterations).
 func Argon2Time(n int) Argon2Option {
-	return func(ap *argon2Provider) {
+	return func(ap *Argon2Provider) {
 		ap.time = uint32(n)
 	}
 }
 
+// Argon2Memory sets the memory parameter in KiB.
 func Argon2Memory(n int) Argon2Option {
-	return func(ap *argon2Provider) {
+	return func(ap *Argon2Provider) {
 		ap.memory = uint32(n)
 	}
 }
 
+// Argon2Parallelism sets the parallelism parameter.
 func Argon2Parallelism(n int) Argon2Option {
-	return func(ap *argon2Provider) {
+	return func(ap *Argon2Provider) {
 		ap.parallelism = uint8(n)
 	}
 }
 
-// Argon2Provider creates a key provider using Argon2id key derivation.
+// NewArgon2Provider creates a key provider using Argon2id key derivation.
 // Returns an error if parameters don't meet minimum security requirements.
-func Argon2Provider(keys [][]byte, salt []byte, keyLength int, options ...Argon2Option) (*argon2Provider, error) {
+func NewArgon2Provider(keys [][]byte, salt []byte, keyLength int, options ...Argon2Option) (*Argon2Provider, error) {
 	if keyLength < MinKeyLength {
 		return nil, fmt.Errorf("key length %d is below minimum %d bytes", keyLength, MinKeyLength)
 	}
@@ -60,7 +65,7 @@ func Argon2Provider(keys [][]byte, salt []byte, keyLength int, options ...Argon2
 		return nil, fmt.Errorf("salt length %d is below minimum 8 bytes", len(salt))
 	}
 
-	keyProvider := &argon2Provider{
+	keyProvider := &Argon2Provider{
 		time:        argon2DefaultTime,
 		memory:      argon2DefaultMemory,
 		parallelism: argon2DefaultParallelism,
@@ -101,7 +106,8 @@ func Argon2Provider(keys [][]byte, salt []byte, keyLength int, options ...Argon2
 	return keyProvider, nil
 }
 
-func (p *argon2Provider) EncryptionKey() ([]byte, error) {
+// EncryptionKey returns the primary key used for encryption (the most recent one).
+func (p *Argon2Provider) EncryptionKey() ([]byte, error) {
 	if len(p.keys) == 0 {
 		return nil, ErrNoKey
 	}
@@ -109,7 +115,8 @@ func (p *argon2Provider) EncryptionKey() ([]byte, error) {
 	return p.keys[0], nil
 }
 
-func (p *argon2Provider) DecryptionKeys() ([][]byte, error) {
+// DecryptionKeys returns all available keys for decryption.
+func (p *Argon2Provider) DecryptionKeys() ([][]byte, error) {
 	if len(p.keys) == 0 {
 		return nil, ErrNoKey
 	}

@@ -22,7 +22,7 @@ func TestChaCha20Poly1305(t *testing.T) {
 		chachaPlainText = []byte("Hello ChaCha20-Poly1305!")
 	)
 
-	keyProvider1, err := key.Argon2Provider(
+	keyProvider1, err := key.NewArgon2Provider(
 		[][]byte{chachaKey1},
 		chachaSalt,
 		cipher.ChaCha20Poly1305KeySize,
@@ -32,14 +32,14 @@ func TestChaCha20Poly1305(t *testing.T) {
 	}
 
 	deterministicChaCha := encryption.New(
-		cipher.ChaCha20Poly1305(
+		cipher.NewChaCha20Poly1305(
 			keyProvider1,
 			initvector.Deterministic(sha256.New),
 		),
-		encoding.SimpleBase64(base64.RawStdEncoding),
+		encoding.NewSimpleBase64(base64.RawStdEncoding),
 	)
 
-	keyProvider2, err := key.Argon2Provider(
+	keyProvider2, err := key.NewArgon2Provider(
 		[][]byte{chachaKey1},
 		chachaSalt,
 		cipher.ChaCha20Poly1305KeySize,
@@ -49,11 +49,11 @@ func TestChaCha20Poly1305(t *testing.T) {
 	}
 
 	nonDeterministicChaCha := encryption.New(
-		cipher.ChaCha20Poly1305(
+		cipher.NewChaCha20Poly1305(
 			keyProvider2,
 			initvector.Random(),
 		),
-		encoding.SimpleBase64(base64.RawStdEncoding),
+		encoding.NewSimpleBase64(base64.RawStdEncoding),
 	)
 
 	t.Run("deterministic encryption", func(t *testing.T) {
@@ -106,12 +106,12 @@ func TestChaCha20Poly1305(t *testing.T) {
 	})
 
 	t.Run("no key", func(t *testing.T) {
-		keyProvider, err := key.PBKDF2Provider([][]byte{}, chachaSalt, sha256.New, cipher.ChaCha20Poly1305KeySize)
+		keyProvider, err := key.NewPBKDF2Provider([][]byte{}, chachaSalt, sha256.New, cipher.ChaCha20Poly1305KeySize)
 		if err != nil {
 			t.Fatalf("failed to create key provider: %v", err)
 		}
 
-		cipher := cipher.ChaCha20Poly1305(
+		cipher := cipher.NewChaCha20Poly1305(
 			keyProvider,
 			initvector.Deterministic(sha256.New),
 		)
@@ -124,12 +124,12 @@ func TestChaCha20Poly1305(t *testing.T) {
 	})
 	t.Run("decrypt with wrong key", func(t *testing.T) {
 		plainText := []byte("secret")
-		keyProvider1, err := key.PBKDF2Provider([][]byte{chachaKey1}, chachaSalt, sha256.New, cipher.ChaCha20Poly1305KeySize)
+		keyProvider1, err := key.NewPBKDF2Provider([][]byte{chachaKey1}, chachaSalt, sha256.New, cipher.ChaCha20Poly1305KeySize)
 		if err != nil {
 			t.Fatalf("failed to create key provider 1: %v", err)
 		}
 
-		cipher1 := cipher.ChaCha20Poly1305(
+		cipher1 := cipher.NewChaCha20Poly1305(
 			keyProvider1,
 			initvector.Deterministic(sha256.New),
 		)
@@ -137,12 +137,12 @@ func TestChaCha20Poly1305(t *testing.T) {
 		assert.NoError(t, err)
 
 		// wrong key
-		keyProvider2, err := key.PBKDF2Provider([][]byte{[]byte("wrong key")}, chachaSalt, sha256.New, cipher.ChaCha20Poly1305KeySize)
+		keyProvider2, err := key.NewPBKDF2Provider([][]byte{[]byte("wrong key")}, chachaSalt, sha256.New, cipher.ChaCha20Poly1305KeySize)
 		if err != nil {
 			t.Fatalf("failed to create key provider 2: %v", err)
 		}
 
-		cipherWithWrongKey := cipher.ChaCha20Poly1305(
+		cipherWithWrongKey := cipher.NewChaCha20Poly1305(
 			keyProvider2,
 			initvector.Deterministic(sha256.New),
 		)

@@ -24,30 +24,30 @@ func TestEncryptor(t *testing.T) {
 	key2 := []byte("GgrHdjRRMUdJsZIoDYjBI79kxi2thh3F")
 	plainText2 := []byte("+855 126.007.4107")
 
-	keyProvider1, err := key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize)
+	keyProvider1, err := key.NewPBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize)
 	if err != nil {
 		t.Fatalf("failed to create key provider 1: %v", err)
 	}
 
 	deterministicEncryptor := encryption.New(
-		cipher.AES256GCM(
+		cipher.NewAES256GCM(
 			keyProvider1,
 			initvector.Deterministic(sha256.New),
 		),
-		encoding.SimpleBase64(base64.RawStdEncoding),
+		encoding.NewSimpleBase64(base64.RawStdEncoding),
 	)
 
-	keyProvider2, err := key.PBKDF2Provider([][]byte{key2}, salt, sha1.New, 32, key.PBKDF2Iterations(key.MinPBKDF2Iterations))
+	keyProvider2, err := key.NewPBKDF2Provider([][]byte{key2}, salt, sha1.New, 32, key.PBKDF2Iterations(key.MinPBKDF2Iterations))
 	if err != nil {
 		t.Fatalf("failed to create key provider 2: %v", err)
 	}
 
 	nonDeterministicEncryptor := encryption.New(
-		cipher.AES256GCM(
+		cipher.NewAES256GCM(
 			keyProvider2,
 			initvector.Random(),
 		),
-		encoding.SimpleBase64(base64.RawStdEncoding),
+		encoding.NewSimpleBase64(base64.RawStdEncoding),
 	)
 
 	t.Run("deterministic encrypt", func(t *testing.T) {
@@ -95,15 +95,15 @@ func TestEncryptor(t *testing.T) {
 
 	t.Run("cipher fails", func(t *testing.T) {
 		// Empty key array is allowed but will fail when trying to encrypt
-		emptyKeyProvider, err := key.PBKDF2Provider([][]byte{}, salt, sha256.New, 32)
+		emptyKeyProvider, err := key.NewPBKDF2Provider([][]byte{}, salt, sha256.New, 32)
 		assert.NoError(t, err) // Provider creation succeeds
 
 		invalidCipher := encryption.New(
-			cipher.AES256GCM(
+			cipher.NewAES256GCM(
 				emptyKeyProvider, // Empty keys will fail on encryption
 				initvector.Deterministic(sha256.New),
 			),
-			encoding.SimpleBase64(base64.RawStdEncoding),
+			encoding.NewSimpleBase64(base64.RawStdEncoding),
 		)
 
 		_, err = invalidCipher.Encrypt(plainText1)

@@ -8,30 +8,34 @@ import (
 )
 
 const (
+	// ChaCha20Poly1305KeySize is the key size for ChaCha20-Poly1305 in bytes.
 	ChaCha20Poly1305KeySize = chacha20poly1305.KeySize
 )
 
 type aead func(key []byte) (cipher.AEAD, error)
 
-type chaCha20Poly1305 struct {
-	rotatingKeyProvider
-	initVectorer
+// ChaCha20Poly1305 implements ciphertext encryption using ChaCha20-Poly1305.
+type ChaCha20Poly1305 struct {
+	RotatingKeyProvider
+	InitVectorer
 	authTagSize int
 	nonceSize   int
 	cipher      aead
 }
 
-func ChaCha20Poly1305(keyProvider rotatingKeyProvider, ivGenerator initVectorer) *chaCha20Poly1305 {
-	return &chaCha20Poly1305{
-		rotatingKeyProvider: keyProvider,
-		initVectorer:        ivGenerator,
+// NewChaCha20Poly1305 creates a new ChaCha20-Poly1305 cipher with the provided key provider and IV generator.
+func NewChaCha20Poly1305(keyProvider RotatingKeyProvider, ivGenerator InitVectorer) *ChaCha20Poly1305 {
+	return &ChaCha20Poly1305{
+		RotatingKeyProvider: keyProvider,
+		InitVectorer:        ivGenerator,
 		authTagSize:         chacha20poly1305.Overhead,
 		nonceSize:           chacha20poly1305.NonceSize, // ChaCha20-Poly1305 standard nonce size
 		cipher:              chacha20poly1305.New,
 	}
 }
 
-func (c *chaCha20Poly1305) Cipher(plainText []byte) ([]byte, []byte, error) {
+// Cipher encrypts the plaintext using ChaCha20-Poly1305.
+func (c *ChaCha20Poly1305) Cipher(plainText []byte) ([]byte, []byte, error) {
 	encryptionKey, err := c.EncryptionKey()
 	if err != nil {
 		return nil, nil, fmt.Errorf("get encryption key: %w", err)
@@ -52,7 +56,8 @@ func (c *chaCha20Poly1305) Cipher(plainText []byte) ([]byte, []byte, error) {
 	return nonce, cipherText, nil
 }
 
-func (c *chaCha20Poly1305) Decipher(nonce, cipherText []byte) ([]byte, error) {
+// Decipher decrypts the ciphertext using ChaCha20-Poly1305.
+func (c *ChaCha20Poly1305) Decipher(nonce, cipherText []byte) ([]byte, error) {
 	if len(nonce) != c.nonceSize {
 		return nil, fmt.Errorf("invalid nonce size: got %d, want %d", len(nonce), c.nonceSize)
 	}
@@ -80,10 +85,12 @@ func (c *chaCha20Poly1305) Decipher(nonce, cipherText []byte) ([]byte, error) {
 	return nil, fmt.Errorf("decryption failed with %d key(s): %w", len(decryptionKeys), lastErr)
 }
 
-func (c *chaCha20Poly1305) AuthTagSize() int {
+// AuthTagSize returns the authentication tag size in bytes.
+func (c *ChaCha20Poly1305) AuthTagSize() int {
 	return c.authTagSize
 }
 
-func (c *chaCha20Poly1305) NonceSize() int {
+// NonceSize returns the nonce size in bytes.
+func (c *ChaCha20Poly1305) NonceSize() int {
 	return c.nonceSize
 }
