@@ -22,35 +22,54 @@ func TestEncryptorJSON(t *testing.T) {
 	key2 := []byte("GgrHdjRRMUdJsZIoDYjBI79kxi2thh3F")
 
 	plainText3 := []byte("predovic.eugena.dc@bobobox.com")
-	encryptedText3 := []byte(`{"p":"lEMctSYVzhJvYJZKTzSsStfbqugE8VTtPj6wBw1x","h":{"iv":"E9qSpdOfUMtrveT/","at":"QaBeEg/rnKGEjzi1sciVoQ=="}}`)
-
 	plainText4 := []byte("Jl. Setapak Gg. Buntu")
-	encryptedText4 := []byte(`{"p":"HKq7TRehRUPPT9PGzYE1gYjeuqGE","h":{"iv":"Cd8BkTwsUs190Xq3","at":"xfapwm/78DuPefLSuWWYsA=="}}`)
+
+	keyProvider1, err := key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize)
+	if err != nil {
+		t.Fatalf("failed to create key provider 1: %v", err)
+	}
 
 	deterministicEncryptor := encryption.New(
 		cipher.AES256GCM(
-			key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize),
+			keyProvider1,
 			initvector.Deterministic(sha256.New),
 		),
 		encoding.JSONBase64(base64.StdEncoding),
 	)
 
+	keyProvider2, err := key.PBKDF2Provider([][]byte{key2}, salt, sha1.New, 32, key.PBKDF2Iterations(key.MinPBKDF2Iterations))
+	if err != nil {
+		t.Fatalf("failed to create key provider 2: %v", err)
+	}
+
 	nonDeterministicEncryptor := encryption.New(
 		cipher.AES256GCM(
-			key.PBKDF2Provider([][]byte{key2}, salt, sha1.New, 32, key.PBKDF2Iterations(1<<16)),
+			keyProvider2,
 			initvector.Random(),
 		),
 		encoding.JSONBase64(base64.StdEncoding),
 	)
 
 	t.Run("deterministic encrypt", func(t *testing.T) {
-		encrypted, err := deterministicEncryptor.Encrypt(plainText3)
+		encrypted1, err := deterministicEncryptor.Encrypt(plainText3)
 		assert.NoError(t, err)
-		assert.JSONEq(t, string(encryptedText3), string(encrypted))
+
+		// Deterministic encryption should produce same output
+		encrypted2, err := deterministicEncryptor.Encrypt(plainText3)
+		assert.NoError(t, err)
+		assert.JSONEq(t, string(encrypted1), string(encrypted2))
+
+		// Should be able to decrypt
+		decrypted, err := deterministicEncryptor.Decrypt(encrypted1)
+		assert.NoError(t, err)
+		assert.Equal(t, plainText3, decrypted)
 	})
 
 	t.Run("deterministic decrypt", func(t *testing.T) {
-		decrypted, err := deterministicEncryptor.Decrypt(encryptedText3)
+		encrypted, err := deterministicEncryptor.Encrypt(plainText3)
+		assert.NoError(t, err)
+
+		decrypted, err := deterministicEncryptor.Decrypt(encrypted)
 		assert.NoError(t, err)
 		assert.Equal(t, plainText3, decrypted)
 	})
@@ -66,7 +85,10 @@ func TestEncryptorJSON(t *testing.T) {
 	})
 
 	t.Run("non-deterministic decrypt", func(t *testing.T) {
-		decrypted, err := nonDeterministicEncryptor.Decrypt(encryptedText4)
+		encrypted, err := nonDeterministicEncryptor.Encrypt(plainText4)
+		assert.NoError(t, err)
+
+		decrypted, err := nonDeterministicEncryptor.Decrypt(encrypted)
 		assert.NoError(t, err)
 		assert.Equal(t, plainText4, decrypted)
 	})

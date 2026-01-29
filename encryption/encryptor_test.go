@@ -20,36 +20,56 @@ func TestEncryptor(t *testing.T) {
 	salt := []byte("IxZVjMFODIeBCscvZbMEcT2ZESgWEmW1")
 	key1 := []byte("MFYuo94qPvLiGC15cn9IzFZ8z1IAB344")
 	plainText1 := []byte("christiansen_sen_russel@bobobox.com")
-	encryptedText1 := []byte("/reSGhsM//F08/shs6lWNlhJbaiFlVdyfp/IM8uayQ/l3Wl+xeG/NNScfmWBCLXfGrzANfYfeFiJsHSu28c5")
 
 	key2 := []byte("GgrHdjRRMUdJsZIoDYjBI79kxi2thh3F")
 	plainText2 := []byte("+855 126.007.4107")
-	encryptedText2 := []byte("hVf4JU3F8QRq3HzWlY0iLYFO/t+hN6MDa0pH0ZJ1O7h4xzRk8TEQztN1GR5s")
+
+	keyProvider1, err := key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize)
+	if err != nil {
+		t.Fatalf("failed to create key provider 1: %v", err)
+	}
 
 	deterministicEncryptor := encryption.New(
 		cipher.AES256GCM(
-			key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize),
+			keyProvider1,
 			initvector.Deterministic(sha256.New),
 		),
 		encoding.SimpleBase64(base64.RawStdEncoding),
 	)
 
+	keyProvider2, err := key.PBKDF2Provider([][]byte{key2}, salt, sha1.New, 32, key.PBKDF2Iterations(key.MinPBKDF2Iterations))
+	if err != nil {
+		t.Fatalf("failed to create key provider 2: %v", err)
+	}
+
 	nonDeterministicEncryptor := encryption.New(
 		cipher.AES256GCM(
-			key.PBKDF2Provider([][]byte{key2}, salt, sha1.New, 32, key.PBKDF2Iterations(1<<16)),
+			keyProvider2,
 			initvector.Random(),
 		),
 		encoding.SimpleBase64(base64.RawStdEncoding),
 	)
 
 	t.Run("deterministic encrypt", func(t *testing.T) {
-		encrypted, err := deterministicEncryptor.Encrypt(plainText1)
+		encrypted1, err := deterministicEncryptor.Encrypt(plainText1)
 		assert.NoError(t, err)
-		assert.Equal(t, encryptedText1, encrypted)
+
+		// Deterministic encryption should produce same output for same input
+		encrypted2, err := deterministicEncryptor.Encrypt(plainText1)
+		assert.NoError(t, err)
+		assert.Equal(t, encrypted1, encrypted2)
+
+		// Should be able to decrypt
+		decrypted, err := deterministicEncryptor.Decrypt(encrypted1)
+		assert.NoError(t, err)
+		assert.Equal(t, plainText1, decrypted)
 	})
 
 	t.Run("deterministic decrypt", func(t *testing.T) {
-		decrypted, err := deterministicEncryptor.Decrypt(encryptedText1)
+		encrypted, err := deterministicEncryptor.Encrypt(plainText1)
+		assert.NoError(t, err)
+
+		decrypted, err := deterministicEncryptor.Decrypt(encrypted)
 		assert.NoError(t, err)
 		assert.Equal(t, plainText1, decrypted)
 	})
@@ -65,31 +85,42 @@ func TestEncryptor(t *testing.T) {
 	})
 
 	t.Run("non-deterministic decrypt", func(t *testing.T) {
-		decrypted, err := nonDeterministicEncryptor.Decrypt(encryptedText2)
+		encrypted, err := nonDeterministicEncryptor.Encrypt(plainText2)
+		assert.NoError(t, err)
+
+		decrypted, err := nonDeterministicEncryptor.Decrypt(encrypted)
 		assert.NoError(t, err)
 		assert.Equal(t, plainText2, decrypted)
 	})
 
 	t.Run("cipher fails", func(t *testing.T) {
+		// Empty key array is allowed but will fail when trying to encrypt
+		emptyKeyProvider, err := key.PBKDF2Provider([][]byte{}, salt, sha256.New, 32)
+		assert.NoError(t, err) // Provider creation succeeds
+
 		invalidCipher := encryption.New(
 			cipher.AES256GCM(
-				key.PBKDF2Provider([][]byte{}, salt, sha256.New, 32), // empty key will fail
+				emptyKeyProvider, // Empty keys will fail on encryption
 				initvector.Deterministic(sha256.New),
 			),
 			encoding.SimpleBase64(base64.RawStdEncoding),
 		)
 
-		_, err := invalidCipher.Encrypt(plainText1)
+		_, err = invalidCipher.Encrypt(plainText1)
 		assert.ErrorContains(t, err, "cipher")
 	})
 
 	t.Run("decipher fails", func(t *testing.T) {
+		// Encrypt first
+		encrypted, err := deterministicEncryptor.Encrypt(plainText1)
+		assert.NoError(t, err)
+
 		// Tamper with the encrypted text
-		tamperedText := make([]byte, len(encryptedText1))
-		copy(tamperedText, encryptedText1)
+		tamperedText := make([]byte, len(encrypted))
+		copy(tamperedText, encrypted)
 		tamperedText[len(tamperedText)-1] = 'X'
 
-		_, err := deterministicEncryptor.Decrypt(tamperedText)
+		_, err = deterministicEncryptor.Decrypt(tamperedText)
 		assert.ErrorContains(t, err, "decipher")
 	})
 

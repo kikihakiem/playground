@@ -136,4 +136,69 @@ func TestScryptProvider(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "derive key")
 	})
+
+	t.Run("validation errors", func(t *testing.T) {
+		t.Run("key length too small", func(t *testing.T) {
+			_, err := ScryptProvider(
+				[][]byte{plainKey1},
+				salt,
+				8, // Below MinKeyLength
+			)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "key length")
+		})
+
+		t.Run("salt too short", func(t *testing.T) {
+			_, err := ScryptProvider(
+				[][]byte{plainKey1},
+				[]byte("short"), // Only 5 bytes
+				32,
+			)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "salt length")
+		})
+
+		t.Run("N parameter too low", func(t *testing.T) {
+			_, err := ScryptProvider(
+				[][]byte{plainKey1},
+				salt,
+				32,
+				ScryptN(1024), // Below MinScryptN
+			)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "N parameter")
+		})
+
+		t.Run("r parameter too low", func(t *testing.T) {
+			_, err := ScryptProvider(
+				[][]byte{plainKey1},
+				salt,
+				32,
+				ScryptR(4), // Below MinScryptR
+			)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "r parameter")
+		})
+
+		t.Run("p parameter too low", func(t *testing.T) {
+			_, err := ScryptProvider(
+				[][]byte{plainKey1},
+				salt,
+				32,
+				ScryptP(0), // Below MinScryptP
+			)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "p parameter")
+		})
+
+		t.Run("empty key", func(t *testing.T) {
+			_, err := ScryptProvider(
+				[][]byte{[]byte("")},
+				salt,
+				32,
+			)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "empty key")
+		})
+	})
 }

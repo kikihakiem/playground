@@ -22,25 +22,35 @@ func TestChaCha20Poly1305(t *testing.T) {
 		chachaPlainText = []byte("Hello ChaCha20-Poly1305!")
 	)
 
+	keyProvider1, err := key.Argon2Provider(
+		[][]byte{chachaKey1},
+		chachaSalt,
+		cipher.ChaCha20Poly1305KeySize,
+	)
+	if err != nil {
+		t.Fatalf("failed to create key provider 1: %v", err)
+	}
+
 	deterministicChaCha := encryption.New(
 		cipher.ChaCha20Poly1305(
-			key.Argon2Provider(
-				[][]byte{chachaKey1},
-				chachaSalt,
-				cipher.ChaCha20Poly1305KeySize,
-			),
+			keyProvider1,
 			initvector.Deterministic(sha256.New),
 		),
 		encoding.SimpleBase64(base64.RawStdEncoding),
 	)
 
+	keyProvider2, err := key.Argon2Provider(
+		[][]byte{chachaKey1},
+		chachaSalt,
+		cipher.ChaCha20Poly1305KeySize,
+	)
+	if err != nil {
+		t.Fatalf("failed to create key provider 2: %v", err)
+	}
+
 	nonDeterministicChaCha := encryption.New(
 		cipher.ChaCha20Poly1305(
-			key.Argon2Provider(
-				[][]byte{chachaKey1},
-				chachaSalt,
-				cipher.ChaCha20Poly1305KeySize,
-			),
+			keyProvider2,
 			initvector.Random(),
 		),
 		encoding.SimpleBase64(base64.RawStdEncoding),
@@ -96,12 +106,17 @@ func TestChaCha20Poly1305(t *testing.T) {
 	})
 
 	t.Run("no key", func(t *testing.T) {
+		keyProvider, err := key.PBKDF2Provider([][]byte{}, chachaSalt, sha256.New, cipher.ChaCha20Poly1305KeySize)
+		if err != nil {
+			t.Fatalf("failed to create key provider: %v", err)
+		}
+
 		cipher := cipher.ChaCha20Poly1305(
-			key.PBKDF2Provider([][]byte{}, chachaSalt, sha256.New, cipher.ChaCha20Poly1305KeySize),
+			keyProvider,
 			initvector.Deterministic(sha256.New),
 		)
 
-		_, _, err := cipher.Cipher([]byte("secret"))
+		_, _, err = cipher.Cipher([]byte("secret"))
 		assert.ErrorIs(t, err, key.ErrNoKey)
 
 		_, err = cipher.Decipher(make([]byte, 12), make([]byte, 16))
@@ -109,16 +124,26 @@ func TestChaCha20Poly1305(t *testing.T) {
 	})
 	t.Run("decrypt with wrong key", func(t *testing.T) {
 		plainText := []byte("secret")
+		keyProvider1, err := key.PBKDF2Provider([][]byte{chachaKey1}, chachaSalt, sha256.New, cipher.ChaCha20Poly1305KeySize)
+		if err != nil {
+			t.Fatalf("failed to create key provider 1: %v", err)
+		}
+
 		cipher1 := cipher.ChaCha20Poly1305(
-			key.PBKDF2Provider([][]byte{chachaKey1}, chachaSalt, sha256.New, cipher.ChaCha20Poly1305KeySize),
+			keyProvider1,
 			initvector.Deterministic(sha256.New),
 		)
 		nonce, cipherText, err := cipher1.Cipher(plainText)
 		assert.NoError(t, err)
 
 		// wrong key
+		keyProvider2, err := key.PBKDF2Provider([][]byte{[]byte("wrong key")}, chachaSalt, sha256.New, cipher.ChaCha20Poly1305KeySize)
+		if err != nil {
+			t.Fatalf("failed to create key provider 2: %v", err)
+		}
+
 		cipherWithWrongKey := cipher.ChaCha20Poly1305(
-			key.PBKDF2Provider([][]byte{[]byte("wrong key")}, chachaSalt, sha256.New, cipher.ChaCha20Poly1305KeySize),
+			keyProvider2,
 			initvector.Deterministic(sha256.New),
 		)
 		_, err = cipherWithWrongKey.Decipher(nonce, cipherText)

@@ -7,6 +7,16 @@ import (
 )
 
 const (
+	// MinScryptN is the minimum recommended CPU/memory cost parameter.
+	// Based on OWASP recommendations (2^15 = 32768).
+	MinScryptN = 1 << 15
+
+	// MinScryptR is the minimum recommended block size parameter.
+	MinScryptR = 8
+
+	// MinScryptP is the minimum recommended parallelization parameter.
+	MinScryptP = 1
+
 	scryptDefaultN = 1 << 15
 	scryptDefaultR = 8
 	scryptDefaultP = 1
@@ -40,8 +50,16 @@ type scryptProvider struct {
 }
 
 // ScryptProvider creates a key provider using scrypt key derivation.
-// Returns an error if key derivation fails for any of the provided keys.
+// Returns an error if key derivation fails or parameters don't meet minimum security requirements.
 func ScryptProvider(keys [][]byte, salt []byte, keyLength int, options ...ScryptOption) (*scryptProvider, error) {
+	if keyLength < MinKeyLength {
+		return nil, fmt.Errorf("key length %d is below minimum %d bytes", keyLength, MinKeyLength)
+	}
+
+	if len(salt) < 8 {
+		return nil, fmt.Errorf("salt length %d is below minimum 8 bytes", len(salt))
+	}
+
 	provider := &scryptProvider{
 		N: scryptDefaultN,
 		r: scryptDefaultR,
@@ -52,7 +70,24 @@ func ScryptProvider(keys [][]byte, salt []byte, keyLength int, options ...Scrypt
 		option(provider)
 	}
 
+	// Validate parameters after options are applied
+	if provider.N < MinScryptN {
+		return nil, fmt.Errorf("N parameter %d is below minimum %d", provider.N, MinScryptN)
+	}
+
+	if provider.r < MinScryptR {
+		return nil, fmt.Errorf("r parameter %d is below minimum %d", provider.r, MinScryptR)
+	}
+
+	if provider.p < MinScryptP {
+		return nil, fmt.Errorf("p parameter %d is below minimum %d", provider.p, MinScryptP)
+	}
+
 	for i, key := range keys {
+		if len(key) == 0 {
+			return nil, fmt.Errorf("empty key provided at index %d", i)
+		}
+
 		derivedKey, err := scrypt.Key(key, salt, provider.N, provider.r, provider.p, keyLength)
 		if err != nil {
 			return nil, fmt.Errorf("derive key %d: %w", i, err)

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPBKDF2Provider(t *testing.T) {
@@ -16,12 +17,13 @@ func TestPBKDF2Provider(t *testing.T) {
 
 	t.Run("custom key size", func(t *testing.T) {
 		customSize := 24
-		provider := PBKDF2Provider(
+		provider, err := PBKDF2Provider(
 			[][]byte{plainKey1},
 			salt,
 			sha256.New,
 			customSize,
 		)
+		require.NoError(t, err)
 
 		// Key should match specified size
 		encryptionKey, err := provider.EncryptionKey()
@@ -30,22 +32,24 @@ func TestPBKDF2Provider(t *testing.T) {
 	})
 
 	t.Run("custom iterations", func(t *testing.T) {
-		// Create two providers with different iterations
-		provider1 := PBKDF2Provider(
+		// Create two providers with different iterations (both above minimum)
+		provider1, err := PBKDF2Provider(
 			[][]byte{plainKey1},
 			salt,
 			sha256.New,
 			32,
-			PBKDF2Iterations(1000),
+			PBKDF2Iterations(MinPBKDF2Iterations),
 		)
+		require.NoError(t, err)
 
-		provider2 := PBKDF2Provider(
+		provider2, err := PBKDF2Provider(
 			[][]byte{plainKey1},
 			salt,
 			sha256.New,
 			32,
-			PBKDF2Iterations(2000),
+			PBKDF2Iterations(MinPBKDF2Iterations+10000),
 		)
+		require.NoError(t, err)
 
 		// Different iterations should produce different keys
 		encryptionKey1, err := provider1.EncryptionKey()
@@ -57,15 +61,16 @@ func TestPBKDF2Provider(t *testing.T) {
 
 	t.Run("multiple options", func(t *testing.T) {
 		customSize := 24
-		customIterations := 1000
+		customIterations := MinPBKDF2Iterations
 
-		provider := PBKDF2Provider(
+		provider, err := PBKDF2Provider(
 			[][]byte{plainKey1},
 			salt,
 			sha256.New,
 			customSize,
 			PBKDF2Iterations(customIterations),
 		)
+		require.NoError(t, err)
 
 		// Key should match specified size
 		encryptionKey, err := provider.EncryptionKey()
@@ -74,12 +79,13 @@ func TestPBKDF2Provider(t *testing.T) {
 	})
 
 	t.Run("multiple keys", func(t *testing.T) {
-		provider := PBKDF2Provider(
+		provider, err := PBKDF2Provider(
 			[][]byte{plainKey1, plainKey2},
 			salt,
 			sha256.New,
 			32,
 		)
+		require.NoError(t, err)
 
 		// Should have 2 decryption keys
 		decryptionKeys, err := provider.DecryptionKeys()
@@ -96,19 +102,21 @@ func TestPBKDF2Provider(t *testing.T) {
 	})
 
 	t.Run("derived keys should be consistent", func(t *testing.T) {
-		provider1 := PBKDF2Provider(
+		provider1, err := PBKDF2Provider(
 			[][]byte{plainKey1},
 			salt,
 			sha256.New,
 			32,
 		)
+		require.NoError(t, err)
 
-		provider2 := PBKDF2Provider(
+		provider2, err := PBKDF2Provider(
 			[][]byte{plainKey1},
 			salt,
 			sha256.New,
 			32,
 		)
+		require.NoError(t, err)
 
 		// Same input should produce same key
 		encryptionKey1, err := provider1.EncryptionKey()
@@ -119,17 +127,65 @@ func TestPBKDF2Provider(t *testing.T) {
 	})
 
 	t.Run("no key", func(t *testing.T) {
-		provider := PBKDF2Provider(
+		provider, err := PBKDF2Provider(
 			[][]byte{},
 			salt,
 			sha256.New,
 			32,
 		)
+		require.NoError(t, err)
 
-		_, err := provider.EncryptionKey()
+		_, err = provider.EncryptionKey()
 		assert.ErrorIs(t, err, ErrNoKey)
 
 		_, err = provider.DecryptionKeys()
 		assert.ErrorIs(t, err, ErrNoKey)
+	})
+
+	t.Run("validation errors", func(t *testing.T) {
+		t.Run("key length too small", func(t *testing.T) {
+			_, err := PBKDF2Provider(
+				[][]byte{plainKey1},
+				salt,
+				sha256.New,
+				8, // Below MinKeyLength
+			)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "key length")
+		})
+
+		t.Run("salt too short", func(t *testing.T) {
+			_, err := PBKDF2Provider(
+				[][]byte{plainKey1},
+				[]byte("short"), // Only 5 bytes
+				sha256.New,
+				32,
+			)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "salt length")
+		})
+
+		t.Run("iterations too low", func(t *testing.T) {
+			_, err := PBKDF2Provider(
+				[][]byte{plainKey1},
+				salt,
+				sha256.New,
+				32,
+				PBKDF2Iterations(1000), // Below MinPBKDF2Iterations
+			)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "iterations")
+		})
+
+		t.Run("empty key", func(t *testing.T) {
+			_, err := PBKDF2Provider(
+				[][]byte{[]byte("")},
+				salt,
+				sha256.New,
+				32,
+			)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "empty key")
+		})
 	})
 }

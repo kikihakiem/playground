@@ -1,6 +1,6 @@
 # Encryption
 
-A flexible and secure text encryption library for Go with configurable ciphers, IV generation, serialization formats, and key rotation capabilities. This library provides a robust foundation for implementing encryption in your Go applications. You can also maintain compatibility with Rails' ActiveRecord encryption with [provided configuration below](#rails-activerecord-compatible-encryptor).
+A flexible and secure text encryption library for Go with configurable ciphers, IV generation, serialization formats, and key rotation capabilities. This library provides a robust foundation for implementing encryption in your Go applications with built-in security best practices. You can also maintain compatibility with Rails' ActiveRecord encryption with [provided configuration below](#rails-activerecord-compatible-encryptor).
 
 ## Features
 
@@ -10,13 +10,18 @@ A flexible and secure text encryption library for Go with configurable ciphers, 
   - XChaCha20-Poly1305
 - 🔄 Configurable IV generation (deterministic or random)
 - 🔑 Multiple key derivation functions:
-  - PBKDF2
+  - PBKDF2 (default: 131,072 iterations)
   - Scrypt
   - Argon2id
 - 📦 Multiple serialization formats:
   - Base64
   - Base64 JSON (Rails compatible format)
   - Base85
+- 🛡️ Built-in security validation:
+  - Minimum key lengths (16 bytes)
+  - Minimum PBKDF2 iterations (100,000)
+  - Minimum salt length (8 bytes)
+  - Empty key detection
 - 🚂 Rails ActiveRecord encryption compatibility
 - 🛠️ Extensible architecture for custom implementations
 
@@ -25,6 +30,17 @@ A flexible and secure text encryption library for Go with configurable ciphers, 
 ```bash
 go get github.com/kikihakiem/playground/encryption
 ```
+
+## Security Best Practices
+
+This library enforces security best practices by default:
+
+- **PBKDF2 Iterations**: Minimum 100,000 iterations (OWASP 2023 recommendation)
+- **Key Length**: Minimum 16 bytes (128 bits)
+- **Salt Length**: Minimum 8 bytes
+- **Default Iterations**: 131,072 for PBKDF2
+
+These validations help prevent weak encryption configurations. All key providers return errors if parameters don't meet minimum security requirements.
 
 ## Quick Start
 
@@ -37,6 +53,7 @@ import (
     "crypto/sha256"
     "encoding/base64"
     "fmt"
+    "log"
     "github.com/kikihakiem/playground/encryption"
     "github.com/kikihakiem/playground/encryption/cipher"
     "github.com/kikihakiem/playground/encryption/encoding"
@@ -46,14 +63,25 @@ import (
 
 func main() {
     // Define your encryption parameters
-    key := []byte("your-secure-key") // Replace with your secure key
-    salt := []byte("your-salt")      // Replace with your salt
+    key := []byte("your-secure-key-at-least-16-bytes") // Must be at least 16 bytes
+    salt := []byte("your-salt-8bytes")                  // Must be at least 8 bytes
     plainText := []byte("Hello, World!")
+
+    // Create key provider with error handling
+    keyProvider, err := key.PBKDF2Provider(
+        [][]byte{key},
+        salt,
+        sha256.New,
+        cipher.AES256GCMKeySize,
+    )
+    if err != nil {
+        log.Fatalf("Failed to create key provider: %v", err)
+    }
 
     // Create a deterministic encryptor with AES-256-GCM
     deterministicEncryptor := encryption.New(
         cipher.AES256GCM(
-            key.PBKDF2Provider([][]byte{key}, salt, sha256.New, cipher.AES256GCMKeySize),
+            keyProvider,
             initvector.Deterministic(sha256.New),
         ),
         encoding.SimpleBase64(base64.RawStdEncoding),
@@ -62,13 +90,13 @@ func main() {
     // Encrypt the plain text
     encrypted, err := deterministicEncryptor.Encrypt(plainText)
     if err != nil {
-        panic(err)
+        log.Fatalf("Encryption failed: %v", err)
     }
 
     // Decrypt the encrypted text
     decrypted, err := deterministicEncryptor.Decrypt(encrypted)
     if err != nil {
-        panic(err)
+        log.Fatalf("Decryption failed: %v", err)
     }
 
     fmt.Printf("Original: %s\nDecrypted: %s\n", plainText, decrypted)

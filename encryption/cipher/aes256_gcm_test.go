@@ -22,13 +22,18 @@ func TestAES256GCM(t *testing.T) {
 	)
 
 	t.Run("truncated nonce", func(t *testing.T) {
+		keyProvider, err := key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize)
+		if err != nil {
+			t.Fatalf("failed to create key provider: %v", err)
+		}
+
 		cipher := cipher.AES256GCM(
-			key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize),
+			keyProvider,
 			initvector.Deterministic(sha256.New),
 		)
 
 		truncatedNonce := make([]byte, 10)
-		_, err := cipher.Decipher(truncatedNonce, nil)
+		_, err = cipher.Decipher(truncatedNonce, nil)
 		assert.ErrorContains(t, err, "truncated")
 	})
 
@@ -37,8 +42,13 @@ func TestAES256GCM(t *testing.T) {
 
 		// encrypt secret with the old key
 		keys := [][]byte{key1}
+		keyProvider1, err := key.PBKDF2Provider(keys, salt, sha256.New, cipher.AES256GCMKeySize)
+		if err != nil {
+			t.Fatalf("failed to create key provider 1: %v", err)
+		}
+
 		oldCipher := cipher.AES256GCM(
-			key.PBKDF2Provider(keys, salt, sha256.New, cipher.AES256GCMKeySize),
+			keyProvider1,
 			initvector.Deterministic(sha256.New),
 		)
 		nonce1, cipherText1, err := oldCipher.Cipher(plainText)
@@ -46,8 +56,13 @@ func TestAES256GCM(t *testing.T) {
 
 		// rotate key
 		keys = prepend(keys, key2)
+		keyProvider2, err := key.PBKDF2Provider(keys, salt, sha256.New, cipher.AES256GCMKeySize)
+		if err != nil {
+			t.Fatalf("failed to create key provider 2: %v", err)
+		}
+
 		newCipher := cipher.AES256GCM(
-			key.PBKDF2Provider(keys, salt, sha256.New, cipher.AES256GCMKeySize),
+			keyProvider2,
 			initvector.Deterministic(sha256.New),
 		)
 
@@ -65,16 +80,26 @@ func TestAES256GCM(t *testing.T) {
 
 	t.Run("decrypt with wrong key", func(t *testing.T) {
 		plainText := []byte("secret")
+		keyProvider1, err := key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize)
+		if err != nil {
+			t.Fatalf("failed to create key provider 1: %v", err)
+		}
+
 		cipher1 := cipher.AES256GCM(
-			key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize),
+			keyProvider1,
 			initvector.Deterministic(sha256.New),
 		)
 		nonce, cipherText, err := cipher1.Cipher(plainText)
 		assert.NoError(t, err)
 
 		// wrong key
+		keyProvider2, err := key.PBKDF2Provider([][]byte{key2}, salt, sha256.New, cipher.AES256GCMKeySize)
+		if err != nil {
+			t.Fatalf("failed to create key provider 2: %v", err)
+		}
+
 		cipherWithWrongKey := cipher.AES256GCM(
-			key.PBKDF2Provider([][]byte{key2}, salt, sha256.New, cipher.AES256GCMKeySize),
+			keyProvider2,
 			initvector.Deterministic(sha256.New),
 		)
 		_, err = cipherWithWrongKey.Decipher(nonce, cipherText)
@@ -87,8 +112,13 @@ func TestAES256GCM(t *testing.T) {
 	})
 
 	t.Run("standard tag and nonce size", func(t *testing.T) {
+		keyProvider, err := key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize)
+		if err != nil {
+			t.Fatalf("failed to create key provider: %v", err)
+		}
+
 		cipher := cipher.AES256GCM(
-			key.PBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize),
+			keyProvider,
 			initvector.Deterministic(sha256.New),
 		)
 
@@ -103,12 +133,17 @@ func TestAES256GCM(t *testing.T) {
 	})
 
 	t.Run("no key", func(t *testing.T) {
+		keyProvider, err := key.PBKDF2Provider([][]byte{}, salt, sha256.New, cipher.AES256GCMKeySize)
+		if err != nil {
+			t.Fatalf("failed to create key provider: %v", err)
+		}
+
 		cipher := cipher.AES256GCM(
-			key.PBKDF2Provider([][]byte{}, salt, sha256.New, cipher.AES256GCMKeySize),
+			keyProvider,
 			initvector.Deterministic(sha256.New),
 		)
 
-		_, _, err := cipher.Cipher([]byte("secret"))
+		_, _, err = cipher.Cipher([]byte("secret"))
 		assert.ErrorIs(t, err, key.ErrNoKey)
 
 		_, err = cipher.Decipher(make([]byte, 12), make([]byte, 16))

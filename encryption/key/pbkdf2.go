@@ -2,13 +2,22 @@ package key
 
 import (
 	"errors"
+	"fmt"
 	"hash"
 
 	"golang.org/x/crypto/pbkdf2"
 )
 
 const (
-	pbkdf2DefaultIterations = 1 << 16 // = 65536
+	// MinPBKDF2Iterations is the minimum recommended iterations for PBKDF2.
+	// Based on OWASP recommendations (2023).
+	MinPBKDF2Iterations = 100_000
+
+	// pbkdf2DefaultIterations provides a secure default (128K iterations).
+	pbkdf2DefaultIterations = 1 << 17 // = 131,072
+
+	// MinKeyLength is the minimum recommended key length in bytes.
+	MinKeyLength = 16 // 128 bits
 )
 
 type pbkdf2Provider struct {
@@ -26,7 +35,17 @@ func PBKDF2Iterations(n int) PBKDF2Option {
 
 var ErrNoKey = errors.New("no key")
 
-func PBKDF2Provider(plainKeys [][]byte, salt []byte, hashFunc func() hash.Hash, keyLength int, options ...PBKDF2Option) *pbkdf2Provider {
+// PBKDF2Provider creates a key provider using PBKDF2 key derivation.
+// Returns an error if parameters don't meet minimum security requirements.
+func PBKDF2Provider(plainKeys [][]byte, salt []byte, hashFunc func() hash.Hash, keyLength int, options ...PBKDF2Option) (*pbkdf2Provider, error) {
+	if keyLength < MinKeyLength {
+		return nil, fmt.Errorf("key length %d is below minimum %d bytes", keyLength, MinKeyLength)
+	}
+
+	if len(salt) < 8 {
+		return nil, fmt.Errorf("salt length %d is below minimum 8 bytes", len(salt))
+	}
+
 	keyProvider := &pbkdf2Provider{
 		iterations: pbkdf2DefaultIterations,
 	}
@@ -35,7 +54,15 @@ func PBKDF2Provider(plainKeys [][]byte, salt []byte, hashFunc func() hash.Hash, 
 		option(keyProvider)
 	}
 
+	if keyProvider.iterations < MinPBKDF2Iterations {
+		return nil, fmt.Errorf("iterations %d is below minimum %d", keyProvider.iterations, MinPBKDF2Iterations)
+	}
+
 	for _, plainKey := range plainKeys {
+		if len(plainKey) == 0 {
+			return nil, fmt.Errorf("empty key provided")
+		}
+
 		keyProvider.keys = append(keyProvider.keys, pbkdf2.Key(
 			plainKey,
 			salt,
@@ -45,7 +72,7 @@ func PBKDF2Provider(plainKeys [][]byte, salt []byte, hashFunc func() hash.Hash, 
 		))
 	}
 
-	return keyProvider
+	return keyProvider, nil
 }
 
 func (kp *pbkdf2Provider) EncryptionKey() ([]byte, error) {
