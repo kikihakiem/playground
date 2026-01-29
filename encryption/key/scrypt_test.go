@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestScryptProvider(t *testing.T) {
@@ -15,11 +16,12 @@ func TestScryptProvider(t *testing.T) {
 
 	t.Run("custom key size", func(t *testing.T) {
 		customSize := 24
-		provider := ScryptProvider(
+		provider, err := ScryptProvider(
 			[][]byte{plainKey1},
 			salt,
 			customSize,
 		)
+		require.NoError(t, err)
 
 		// Key should match specified size
 		encryptionKey, err := provider.EncryptionKey()
@@ -29,7 +31,7 @@ func TestScryptProvider(t *testing.T) {
 
 	t.Run("custom parameters", func(t *testing.T) {
 		// Create two providers with different parameters
-		provider1 := ScryptProvider(
+		provider1, err := ScryptProvider(
 			[][]byte{plainKey1},
 			salt,
 			32,
@@ -37,8 +39,9 @@ func TestScryptProvider(t *testing.T) {
 			ScryptR(8),
 			ScryptP(1),
 		)
+		require.NoError(t, err)
 
-		provider2 := ScryptProvider(
+		provider2, err := ScryptProvider(
 			[][]byte{plainKey1},
 			salt,
 			32,
@@ -46,6 +49,7 @@ func TestScryptProvider(t *testing.T) {
 			ScryptR(16),
 			ScryptP(2),
 		)
+		require.NoError(t, err)
 
 		// Different parameters should produce different keys
 		key1, err := provider1.EncryptionKey()
@@ -58,11 +62,12 @@ func TestScryptProvider(t *testing.T) {
 	})
 
 	t.Run("multiple keys", func(t *testing.T) {
-		provider := ScryptProvider(
+		provider, err := ScryptProvider(
 			[][]byte{plainKey1, plainKey2},
 			salt,
 			32,
 		)
+		require.NoError(t, err)
 
 		// Should have 2 decryption keys
 		decryptionKeys, err := provider.DecryptionKeys()
@@ -79,17 +84,19 @@ func TestScryptProvider(t *testing.T) {
 	})
 
 	t.Run("derived keys should be consistent", func(t *testing.T) {
-		provider1 := ScryptProvider(
+		provider1, err := ScryptProvider(
 			[][]byte{plainKey1},
 			salt,
 			32,
 		)
+		require.NoError(t, err)
 
-		provider2 := ScryptProvider(
+		provider2, err := ScryptProvider(
 			[][]byte{plainKey1},
 			salt,
 			32,
 		)
+		require.NoError(t, err)
 
 		// Same input should produce same key
 		encryptionKey1, err := provider1.EncryptionKey()
@@ -100,23 +107,24 @@ func TestScryptProvider(t *testing.T) {
 	})
 
 	t.Run("no key", func(t *testing.T) {
-		provider := ScryptProvider(
+		provider, err := ScryptProvider(
 			[][]byte{},
 			salt,
 			32,
 		)
+		require.NoError(t, err)
 
-		_, err := provider.EncryptionKey()
+		_, err = provider.EncryptionKey()
 		assert.ErrorIs(t, err, ErrNoKey)
 
 		_, err = provider.DecryptionKeys()
 		assert.ErrorIs(t, err, ErrNoKey)
 	})
 
-	t.Run("invalid r*p", func(t *testing.T) {
+	t.Run("invalid r*p returns error", func(t *testing.T) {
 		// Set r and p values that when multiplied exceed 1073741824 (2^30)
-		// This will cause scrypt.Key() to fail and result in no key being added
-		provider := ScryptProvider(
+		// This will cause scrypt.Key() to fail and ScryptProvider should return an error
+		_, err := ScryptProvider(
 			[][]byte{plainKey1},
 			salt,
 			32,
@@ -124,12 +132,8 @@ func TestScryptProvider(t *testing.T) {
 			ScryptP(32768), // 2^15
 		)
 
-		// Should result in no encryption key
-		_, err := provider.EncryptionKey()
-		assert.ErrorIs(t, err, ErrNoKey)
-
-		// Should result in no decryption keys
-		_, err = provider.DecryptionKeys()
-		assert.ErrorIs(t, err, ErrNoKey)
+		// Should return an error from ScryptProvider now
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "derive key")
 	})
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/kikihakiem/playground/encryption/initvector"
 	"github.com/kikihakiem/playground/encryption/key"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestXChaCha20Poly1305(t *testing.T) {
@@ -22,13 +23,16 @@ func TestXChaCha20Poly1305(t *testing.T) {
 		xchachaPlainText = []byte("Hello XChaCha20-Poly1305!")
 	)
 
+	scryptKeyProvider, err := key.ScryptProvider(
+		[][]byte{xchachaKey1},
+		xchachaSalt,
+		cipher.ChaCha20Poly1305KeySize,
+	)
+	require.NoError(t, err)
+
 	deterministicXChaCha := encryption.New(
 		cipher.XChaCha20Poly1305(
-			key.ScryptProvider(
-				[][]byte{xchachaKey1},
-				xchachaSalt,
-				cipher.ChaCha20Poly1305KeySize,
-			),
+			scryptKeyProvider,
 			initvector.Deterministic(sha256.New),
 		),
 		encoding.SimpleBase64(base64.RawStdEncoding),
@@ -36,11 +40,7 @@ func TestXChaCha20Poly1305(t *testing.T) {
 
 	nonDeterministicXChaCha := encryption.New(
 		cipher.XChaCha20Poly1305(
-			key.ScryptProvider(
-				[][]byte{xchachaKey1},
-				xchachaSalt,
-				cipher.ChaCha20Poly1305KeySize,
-			),
+			scryptKeyProvider,
 			initvector.Random(),
 		),
 		encoding.SimpleBase64(base64.RawStdEncoding),

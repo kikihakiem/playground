@@ -1,6 +1,10 @@
 package key
 
-import "golang.org/x/crypto/scrypt"
+import (
+	"fmt"
+
+	"golang.org/x/crypto/scrypt"
+)
 
 const (
 	scryptDefaultN = 1 << 15
@@ -35,7 +39,9 @@ type scryptProvider struct {
 	p    int
 }
 
-func ScryptProvider(keys [][]byte, salt []byte, keyLength int, options ...ScryptOption) *scryptProvider {
+// ScryptProvider creates a key provider using scrypt key derivation.
+// Returns an error if key derivation fails for any of the provided keys.
+func ScryptProvider(keys [][]byte, salt []byte, keyLength int, options ...ScryptOption) (*scryptProvider, error) {
 	provider := &scryptProvider{
 		N: scryptDefaultN,
 		r: scryptDefaultR,
@@ -46,15 +52,15 @@ func ScryptProvider(keys [][]byte, salt []byte, keyLength int, options ...Scrypt
 		option(provider)
 	}
 
-	for _, key := range keys {
+	for i, key := range keys {
 		derivedKey, err := scrypt.Key(key, salt, provider.N, provider.r, provider.p, keyLength)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("derive key %d: %w", i, err)
 		}
 		provider.keys = append(provider.keys, derivedKey)
 	}
 
-	return provider
+	return provider, nil
 }
 
 func (p *scryptProvider) EncryptionKey() ([]byte, error) {
