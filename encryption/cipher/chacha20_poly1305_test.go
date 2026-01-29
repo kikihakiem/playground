@@ -210,4 +210,82 @@ func TestChaCha20Poly1305(t *testing.T) {
 			assert.NotEqual(t, cipherText1, cipherText2)
 		})
 	})
+
+	t.Run("edge cases", func(t *testing.T) {
+		keyProvider, err := key.NewPBKDF2Provider([][]byte{chachaKey1}, chachaSalt, sha256.New, cipher.ChaCha20Poly1305KeySize)
+		require.NoError(t, err)
+
+		chachaCipher := cipher.NewChaCha20Poly1305(
+			keyProvider,
+			initvector.Deterministic(sha256.New),
+		)
+
+		t.Run("empty plaintext", func(t *testing.T) {
+			emptyPlainText := []byte{}
+			nonce, cipherText, err := chachaCipher.Cipher(ctx, emptyPlainText, nil)
+			assert.NoError(t, err)
+			assert.NotEmpty(t, cipherText)
+
+			decrypted, err := chachaCipher.Decipher(ctx, nonce, cipherText, nil)
+			assert.NoError(t, err)
+			// AEAD may return nil for empty plaintext; both nil and []byte{} are valid
+			assert.Empty(t, decrypted)
+		})
+
+		t.Run("very large plaintext", func(t *testing.T) {
+			// Test with 5MB of data
+			largePlainText := make([]byte, 5*1024*1024)
+			for i := range largePlainText {
+				largePlainText[i] = byte(i % 256)
+			}
+
+			nonce, cipherText, err := chachaCipher.Cipher(ctx, largePlainText, nil)
+			assert.NoError(t, err)
+			assert.NotEmpty(t, cipherText)
+
+			decrypted, err := chachaCipher.Decipher(ctx, nonce, cipherText, nil)
+			assert.NoError(t, err)
+			assert.Equal(t, largePlainText, decrypted)
+		})
+
+		t.Run("single byte plaintext", func(t *testing.T) {
+			singleByte := []byte{0x42}
+			nonce, cipherText, err := chachaCipher.Cipher(ctx, singleByte, nil)
+			assert.NoError(t, err)
+
+			decrypted, err := chachaCipher.Decipher(ctx, nonce, cipherText, nil)
+			assert.NoError(t, err)
+			assert.Equal(t, singleByte, decrypted)
+		})
+
+		t.Run("key rotation - encrypt with key1, decrypt with [key2, key1]", func(t *testing.T) {
+			key2 := []byte("ChaCha20Poly1305TestKey2-123456789012")
+			plainText := []byte("rotation-test")
+
+			// Encrypt with key1 only
+			keyProvider1, err := key.NewPBKDF2Provider([][]byte{chachaKey1}, chachaSalt, sha256.New, cipher.ChaCha20Poly1305KeySize)
+			require.NoError(t, err)
+
+			cipher1 := cipher.NewChaCha20Poly1305(
+				keyProvider1,
+				initvector.Deterministic(sha256.New),
+			)
+
+			nonce, cipherText, err := cipher1.Cipher(ctx, plainText, nil)
+			assert.NoError(t, err)
+
+			// Decrypt with [key2, key1] - should succeed with key1
+			keyProvider2, err := key.NewPBKDF2Provider([][]byte{key2, chachaKey1}, chachaSalt, sha256.New, cipher.ChaCha20Poly1305KeySize)
+			require.NoError(t, err)
+
+			cipher2 := cipher.NewChaCha20Poly1305(
+				keyProvider2,
+				initvector.Deterministic(sha256.New),
+			)
+
+			decrypted, err := cipher2.Decipher(ctx, nonce, cipherText, nil)
+			assert.NoError(t, err)
+			assert.Equal(t, plainText, decrypted)
+		})
+	})
 }

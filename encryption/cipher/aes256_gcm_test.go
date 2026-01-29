@@ -13,6 +13,7 @@ import (
 	"github.com/kikihakiem/playground/encryption/initvector"
 	"github.com/kikihakiem/playground/encryption/key"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAES256GCM(t *testing.T) {
@@ -216,6 +217,112 @@ func TestAES256GCM(t *testing.T) {
 			assert.NoError(t, err)
 
 			decrypted, err := aesCipher.Decipher(ctx, nonce, cipherText, longAAD)
+			assert.NoError(t, err)
+			assert.Equal(t, plainText, decrypted)
+		})
+	})
+
+	t.Run("edge cases", func(t *testing.T) {
+		keyProvider, err := key.NewPBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize)
+		require.NoError(t, err)
+
+		aesCipher := cipher.NewAES256GCM(
+			keyProvider,
+			initvector.Deterministic(sha256.New),
+		)
+
+		t.Run("empty plaintext", func(t *testing.T) {
+			emptyPlainText := []byte{}
+			nonce, cipherText, err := aesCipher.Cipher(ctx, emptyPlainText, nil)
+			assert.NoError(t, err)
+			assert.NotEmpty(t, cipherText) // Should still produce encrypted output
+
+			decrypted, err := aesCipher.Decipher(ctx, nonce, cipherText, nil)
+			assert.NoError(t, err)
+			// AEAD may return nil for empty plaintext; both nil and []byte{} are valid
+			assert.Empty(t, decrypted)
+		})
+
+		t.Run("very large plaintext", func(t *testing.T) {
+			// Test with 5MB of data
+			largePlainText := make([]byte, 5*1024*1024)
+			for i := range largePlainText {
+				largePlainText[i] = byte(i % 256)
+			}
+
+			nonce, cipherText, err := aesCipher.Cipher(ctx, largePlainText, nil)
+			assert.NoError(t, err)
+			assert.NotEmpty(t, cipherText)
+
+			decrypted, err := aesCipher.Decipher(ctx, nonce, cipherText, nil)
+			assert.NoError(t, err)
+			assert.Equal(t, largePlainText, decrypted)
+		})
+
+		t.Run("single byte plaintext", func(t *testing.T) {
+			singleByte := []byte{0x42}
+			nonce, cipherText, err := aesCipher.Cipher(ctx, singleByte, nil)
+			assert.NoError(t, err)
+
+			decrypted, err := aesCipher.Decipher(ctx, nonce, cipherText, nil)
+			assert.NoError(t, err)
+			assert.Equal(t, singleByte, decrypted)
+		})
+
+		t.Run("key rotation - encrypt with key1, decrypt with [key2, key1]", func(t *testing.T) {
+			plainText := []byte("rotation-test")
+
+			// Encrypt with key1 only
+			keyProvider1, err := key.NewPBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize)
+			require.NoError(t, err)
+
+			cipher1 := cipher.NewAES256GCM(
+				keyProvider1,
+				initvector.Deterministic(sha256.New),
+			)
+
+			nonce, cipherText, err := cipher1.Cipher(ctx, plainText, nil)
+			assert.NoError(t, err)
+
+			// Decrypt with [key2, key1] - should succeed with key1
+			keyProvider2, err := key.NewPBKDF2Provider([][]byte{key2, key1}, salt, sha256.New, cipher.AES256GCMKeySize)
+			require.NoError(t, err)
+
+			cipher2 := cipher.NewAES256GCM(
+				keyProvider2,
+				initvector.Deterministic(sha256.New),
+			)
+
+			decrypted, err := cipher2.Decipher(ctx, nonce, cipherText, nil)
+			assert.NoError(t, err)
+			assert.Equal(t, plainText, decrypted)
+		})
+
+		t.Run("key rotation - encrypt with key1, decrypt with [key1, key2]", func(t *testing.T) {
+			plainText := []byte("rotation-test-2")
+
+			// Encrypt with key1 only
+			keyProvider1, err := key.NewPBKDF2Provider([][]byte{key1}, salt, sha256.New, cipher.AES256GCMKeySize)
+			require.NoError(t, err)
+
+			cipher1 := cipher.NewAES256GCM(
+				keyProvider1,
+				initvector.Deterministic(sha256.New),
+			)
+
+			nonce, cipherText, err := cipher1.Cipher(ctx, plainText, nil)
+			assert.NoError(t, err)
+
+			// Decrypt with [key1, key2] - should succeed with key1 (first key)
+			keyProvider2, err := key.NewPBKDF2Provider([][]byte{key1, key2}, salt, sha256.New, cipher.AES256GCMKeySize)
+			require.NoError(t, err)
+
+			cipher2 := cipher.NewAES256GCM(
+				keyProvider2,
+				initvector.Deterministic(sha256.New),
+			)
+
+			decrypted, err := cipher2.Decipher(ctx, nonce, cipherText, nil)
 			assert.NoError(t, err)
 			assert.Equal(t, plainText, decrypted)
 		})
