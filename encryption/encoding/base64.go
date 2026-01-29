@@ -2,11 +2,10 @@ package encoding
 
 import (
 	"encoding/base64"
-	"errors"
 	"fmt"
-)
 
-var ErrTruncated = errors.New("truncated text")
+	"github.com/kikihakiem/playground/encryption"
+)
 
 type simpleBase64 struct {
 	*base64.Encoding
@@ -32,7 +31,7 @@ func (s simpleBase64) Deserialize(encoded []byte, authTagSize, nonceSize int) ([
 	}
 
 	if n < nonceSize+authTagSize {
-		return nil, nil, ErrTruncated
+		return nil, nil, encryption.ErrTruncated
 	}
 
 	return decoded[:nonceSize], decoded[nonceSize:], nil

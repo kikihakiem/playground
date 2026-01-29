@@ -1,9 +1,5 @@
 package cipher
 
-import "errors"
-
-var ErrTruncated = errors.New("truncated text")
-
 type rotatingKeyProvider interface {
 	EncryptionKey() ([]byte, error)
 	DecryptionKeys() ([][]byte, error)

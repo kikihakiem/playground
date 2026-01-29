@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+
+	"github.com/kikihakiem/playground/encryption"
 )
 
 type base64Text struct {
@@ -64,7 +66,7 @@ func JSONBase64(enc *base64.Encoding) *jsonBase64 {
 
 func (j jsonBase64) Serialize(nonce, cipherText []byte, authTagSize, nonceSize int) ([]byte, error) {
 	if len(cipherText) < authTagSize {
-		return nil, ErrTruncated
+		return nil, encryption.ErrTruncated
 	}
 
 	obj := newBase64JSON(nonce, cipherText[:len(cipherText)-authTagSize], cipherText[len(cipherText)-authTagSize:], j.Encoding)

@@ -4,6 +4,8 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"fmt"
+
+	"github.com/kikihakiem/playground/encryption"
 )
 
 const (
@@ -54,7 +56,7 @@ func (c *aes256GCM) Cipher(plainText []byte) ([]byte, []byte, error) {
 
 func (c *aes256GCM) Decipher(nonce, cipherText []byte) (deciphered []byte, err error) {
 	if len(nonce) < c.nonceSize || len(cipherText) < c.authTagSize {
-		return nil, ErrTruncated
+		return nil, encryption.ErrTruncated
 	}
 
 	decryptionKeys, err := c.DecryptionKeys()

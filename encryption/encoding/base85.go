@@ -3,6 +3,8 @@ package encoding
 import (
 	"encoding/ascii85"
 	"fmt"
+
+	"github.com/kikihakiem/playground/encryption"
 )
 
 type base85 struct{}
@@ -33,7 +35,7 @@ func (b base85) Serialize(nonce, cipherText []byte, authTagSize, nonceSize int) 
 func (b base85) Deserialize(encoded []byte, authTagSize, nonceSize int) ([]byte, []byte, error) {
 	// Check for minimum length
 	if len(encoded) < 4 {
-		return nil, nil, ErrTruncated
+		return nil, nil, encryption.ErrTruncated
 	}
 
 	// Check if we have complete markers
@@ -42,7 +44,7 @@ func (b base85) Deserialize(encoded []byte, authTagSize, nonceSize int) ([]byte,
 
 	// If we have partial markers, it's a truncation error
 	if (hasStartMarker && !hasEndMarker) || (!hasStartMarker && hasEndMarker) {
-		return nil, nil, ErrTruncated
+		return nil, nil, encryption.ErrTruncated
 	}
 
 	// If we have no markers at all, it's an invalid format
@@ -61,7 +63,7 @@ func (b base85) Deserialize(encoded []byte, authTagSize, nonceSize int) ([]byte,
 	}
 
 	if n < nonceSize+authTagSize {
-		return nil, nil, ErrTruncated
+		return nil, nil, encryption.ErrTruncated
 	}
 
 	return decoded[:nonceSize], decoded[nonceSize:n], nil
