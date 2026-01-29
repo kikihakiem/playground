@@ -77,10 +77,10 @@ func main() {
 
 ### Using Argon2 or Scrypt Key Provider
 
-Argon2 key provider with its options:
+Scrypt key provider with its options:
 
 ```go
-scryptKeyProvider := key.ScryptKeyProvider(
+scryptKeyProvider, err := key.ScryptProvider(
     [][]byte{key},
     salt,
     32, // key length
@@ -88,12 +88,15 @@ scryptKeyProvider := key.ScryptKeyProvider(
     key.ScryptR(8),     // block size
     key.ScryptP(1),     // parallelization
 )
+if err != nil {
+    panic(err)
+}
 ```
 
-Scrypt key provider with its options:
+Argon2 key provider with its options:
 
 ```go
-scryptKeyProvider := key.Argon2Provider(
+argon2KeyProvider := key.Argon2Provider(
     [][]byte{key},
     salt,
     32,
@@ -108,7 +111,7 @@ scryptKeyProvider := key.Argon2Provider(
 ```go
 xChachaEncryptor := encryption.New(
     cipher.XChaCha20Poly1305(
-        key.Argon2([][]byte{key}, salt, cipher.ChaCha20Poly1305KeySize),
+        key.Argon2Provider([][]byte{key}, salt, cipher.ChaCha20Poly1305KeySize),
         initvector.Random(),
     ),
     encoding.SimpleBase64(base64.RawStdEncoding),
