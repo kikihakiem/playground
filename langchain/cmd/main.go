@@ -9,6 +9,24 @@ import (
 	"github.com/khakiem/playground/langchain/pkg/orchestrator"
 )
 
+// standardAllowlist is the set of external packages the DevAgent is allowed to
+// import.  Add entries here as the project matures; each package is pinned to
+// a specific version so the sandbox go.mod is deterministic.
+var standardAllowlist = []orchestrator.ApprovedDep{
+	{
+		Name:    "Google UUID",
+		Module:  "github.com/google/uuid",
+		Version: "v1.6.0",
+		Desc:    "UUID generation (RFC 4122)",
+	},
+	{
+		Name:    "pkg/errors",
+		Module:  "github.com/pkg/errors",
+		Version: "v0.9.1",
+		Desc:    "Error wrapping with stack traces",
+	},
+}
+
 func main() {
 	requirement := flag.String(
 		"requirement",
@@ -22,8 +40,6 @@ func main() {
 	ctx := context.Background()
 
 	// ── Audit tool chain ─────────────────────────────────────────────────────
-	// All three tools are included. Each calls Available() before running;
-	// unavailable tools are silently skipped so the pipeline stays portable.
 	tools := []orchestrator.AnalysisTool{
 		orchestrator.GoVetTool{},
 		orchestrator.GosecTool{},
@@ -31,9 +47,14 @@ func main() {
 	}
 	reportToolchain(tools)
 
-	// ── Judge / Generator ────────────────────────────────────────────────────
-	var judge     orchestrator.JudgeAgent
-	var generator orchestrator.CodeGenerator
+	// ── Agents ───────────────────────────────────────────────────────────────
+	var (
+		judge     orchestrator.JudgeAgent
+		generator orchestrator.CodeGenerator
+		depsAgent orchestrator.DependencyApprover // nil = stdlib-only
+	)
+
+	maxRetries := 3
 
 	if *live {
 		backend, err := orchestrator.NewCodeLlamaBackend(
@@ -42,15 +63,23 @@ func main() {
 		if err != nil {
 			log.Fatalf("init CodeLlama backend: %v", err)
 		}
-		// Two-persona split: DevAgent writes fast; AuditorJudge repairs safely.
+		// Three-agent pipeline:
+		//   DevAgent           — junior dev, writes code fast
+		//   AuditorJudge       — senior auditor, fixes compiler + tool issues
+		//   LLMDependencyAgent — selects which allowlisted packages to use
 		generator = &orchestrator.DevAgent{LLM: backend}
 		judge = &orchestrator.AuditorJudge{LLM: backend}
+		depsAgent = &orchestrator.LLMDependencyAgent{
+			LLM:       backend,
+			Allowlist: standardAllowlist,
+		}
+		maxRetries = 6
 		fmt.Printf("backend  : CodeLlama (%s) via Ollama\n", *model)
-		fmt.Printf("generator: DevAgent    (junior dev persona)\n")
-		fmt.Printf("judge    : AuditorJudge (senior security auditor persona)\n\n")
+		fmt.Printf("generator: DevAgent          (junior dev persona)\n")
+		fmt.Printf("judge    : AuditorJudge       (senior security auditor persona)\n")
+		fmt.Printf("deps     : LLMDependencyAgent (%d packages in allowlist)\n\n", len(standardAllowlist))
 	} else {
-		// The mock code is written to be clean: server has timeouts (gosec G114)
-		// and the error from ListenAndServe is handled (gosec G104).
+		// Mock path: clean server code that passes all audit tools.
 		mj := &orchestrator.MockJudge{
 			GeneratedCodes: []string{`package main
 
@@ -80,17 +109,14 @@ func main() {
 `},
 		}
 		judge, generator = mj, mj
-		fmt.Println("backend  : mock (pass -live to use CodeLlama)\n")
-	}
-
-	maxRetries := 3
-	if *live {
-		maxRetries = 6
+		fmt.Println("backend  : mock (pass -live to use CodeLlama)")
+		fmt.Println()
 	}
 
 	loop := &orchestrator.ExecutionLoop{
 		Generator:  generator,
 		Judge:      judge,
+		Deps:       depsAgent,
 		Tools:      tools,
 		MaxRetries: maxRetries,
 	}
@@ -116,6 +142,12 @@ func main() {
 	}
 
 	fmt.Printf("=== result (status=%s, attempts=%d) ===\n", task.Status, task.Attempts)
+	if len(task.ApprovedDeps) > 0 {
+		fmt.Println("approved deps used:")
+		for _, d := range task.ApprovedDeps {
+			fmt.Printf("  %s %s\n", d.Module, d.Version)
+		}
+	}
 	fmt.Println(task.Code)
 }
 

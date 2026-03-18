@@ -48,6 +48,8 @@ func (j *StructuredJudge) GenerateInitialCode(ctx context.Context, requirement s
 // MockLLMBackend records every call it receives and returns injected responses.
 // Prompts holds the user-turn content; SystemPrompts holds the persona/system turn.
 // Both slices are parallel — index N in Prompts corresponds to index N in SystemPrompts.
+// MockLLMBackend satisfies both LLMBackend and TextBackend so it can stand in
+// for LLMDependencyAgent's LLM field without a separate mock.
 type MockLLMBackend struct {
 	Responses     []string
 	Prompts       []string // user-turn prompts, for backward-compat test assertions
@@ -55,6 +57,16 @@ type MockLLMBackend struct {
 }
 
 func (m *MockLLMBackend) Complete(_ context.Context, systemPrompt, userPrompt string) (string, error) {
+	return m.consume(systemPrompt, userPrompt)
+}
+
+// CompleteText satisfies TextBackend.  Behaviour is identical to Complete —
+// the mock does not strip Go source, so it works for both use cases.
+func (m *MockLLMBackend) CompleteText(_ context.Context, systemPrompt, userPrompt string) (string, error) {
+	return m.consume(systemPrompt, userPrompt)
+}
+
+func (m *MockLLMBackend) consume(systemPrompt, userPrompt string) (string, error) {
 	m.Prompts = append(m.Prompts, userPrompt)
 	m.SystemPrompts = append(m.SystemPrompts, systemPrompt)
 	if len(m.Responses) == 0 {

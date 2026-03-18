@@ -13,13 +13,14 @@ import (
 
 // ExecutionLoop is the core agentic loop:
 //
-//	generate → build+audit → issues? ask judge to fix → repeat
+//	approve deps → generate → build+audit → issues? ask judge to fix → repeat
 type ExecutionLoop struct {
-	Generator   CodeGenerator  // produces initial code from a requirement
-	Judge       JudgeAgent     // repairs code given real tool output
-	Tools       []AnalysisTool // run after each successful build (go vet, gosec, staticcheck)
-	MaxRetries  int            // max judge-and-retry cycles (0 = build once, no repair)
-	MinSeverity Severity       // findings below this level are reported but don't trigger repair (default: LOW)
+	Generator   CodeGenerator      // produces initial code from a requirement
+	Judge       JudgeAgent         // repairs code given real tool output
+	Deps        DependencyApprover // optional; nil = stdlib-only
+	Tools       []AnalysisTool     // run after each successful build (go vet, gosec, staticcheck)
+	MaxRetries  int                // max judge-and-retry cycles (0 = build once, no repair)
+	MinSeverity Severity           // findings below this level are reported but don't trigger repair (default: LOW)
 }
 
 // GenerateInitialCode populates task.Code from a natural-language requirement.
@@ -37,8 +38,26 @@ func (el *ExecutionLoop) GenerateInitialCode(ctx context.Context, task *Task, re
 
 // RunFromRequirement generates initial code then runs the build+audit+fix loop.
 // It is the single entry-point for the full agentic pipeline.
+//
+// Pipeline:
+//  1. (optional) DependencyApprover selects allowed external packages
+//  2. Requirement is enriched with dep hints and passed to GenerateInitialCode
+//  3. Build+audit+fix loop runs until clean or retries are exhausted
 func (el *ExecutionLoop) RunFromRequirement(ctx context.Context, task *Task, requirement string) error {
-	if err := el.GenerateInitialCode(ctx, task, requirement); err != nil {
+	enriched := requirement
+
+	if el.Deps != nil {
+		deps, err := el.Deps.ApproveDeps(ctx, requirement)
+		if err != nil {
+			return fmt.Errorf("dependency approver: %w", err)
+		}
+		task.ApprovedDeps = deps
+		if len(deps) > 0 {
+			enriched = EnrichRequirement(requirement, deps)
+		}
+	}
+
+	if err := el.GenerateInitialCode(ctx, task, enriched); err != nil {
 		return err
 	}
 	return el.Run(ctx, task)
@@ -51,7 +70,7 @@ func (el *ExecutionLoop) Run(ctx context.Context, task *Task) error {
 		task.Status = StatusRunning
 		task.Attempts++
 
-		buildErrs, findings, toolErrs, err := buildAndAudit(ctx, task.Code, el.Tools)
+		buildErrs, findings, toolErrs, err := buildAndAudit(ctx, task.Code, el.Tools, task.ApprovedDeps)
 		if err != nil {
 			task.Status = StatusFailed
 			return fmt.Errorf("build/audit error on attempt %d: %w", task.Attempts, err)
@@ -133,7 +152,10 @@ func (el *ExecutionLoop) filterFindings(findings []Finding) []Finding {
 // buildAndAudit writes code to a temp dir, runs `go build`, and — if the build
 // succeeds — runs all configured audit tools.  It returns compiler errors and
 // tool findings separately so the prompt builder can render them distinctly.
-func buildAndAudit(ctx context.Context, code string, tools []AnalysisTool) (
+// When deps are non-empty, go mod tidy is run before compilation so the sandbox
+// go.mod includes the approved external packages; tidy failures are surfaced as
+// build errors (not fatal errors) so the judge can diagnose wrong import paths.
+func buildAndAudit(ctx context.Context, code string, tools []AnalysisTool, deps []ApprovedDep) (
 	buildErrors []string, findings []Finding, toolErrs []error, err error,
 ) {
 	dir, err := os.MkdirTemp("", "orchestrator-*")
@@ -142,12 +164,29 @@ func buildAndAudit(ctx context.Context, code string, tools []AnalysisTool) (
 	}
 	defer os.RemoveAll(dir)
 
-	gomod := "module sandbox\n\ngo 1.25\n"
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(BuildGoMod(deps)), 0o600); err != nil {
 		return nil, nil, nil, fmt.Errorf("write go.mod: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(code), 0o600); err != nil {
 		return nil, nil, nil, fmt.Errorf("write main.go: %w", err)
+	}
+
+	// ── 0. Fetch external deps ────────────────────────────────────────────────
+	// go mod tidy downloads approved packages and generates go.sum.
+	// Errors are returned as build errors — a wrong import path in the generated
+	// code is a code problem, not an infrastructure problem.
+	if len(deps) > 0 {
+		var tidyStderr bytes.Buffer
+		tidyCmd := exec.CommandContext(ctx, "go", "mod", "tidy")
+		tidyCmd.Dir = dir
+		tidyCmd.Stderr = &tidyStderr
+		if tidyErr := tidyCmd.Run(); tidyErr != nil {
+			raw := strings.TrimSpace(tidyStderr.String())
+			if raw == "" {
+				raw = tidyErr.Error()
+			}
+			return strings.Split("go mod tidy: "+raw, "\n"), nil, nil, nil
+		}
 	}
 
 	// ── 1. Compile ───────────────────────────────────────────────────────────

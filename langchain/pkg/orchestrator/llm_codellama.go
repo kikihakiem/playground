@@ -65,6 +65,17 @@ func NewCodeLlamaBackend(opts ...CodeLlamaOption) (*CodeLlamaBackend, error) {
 	return &CodeLlamaBackend{llm: llm}, nil
 }
 
+// CompleteText satisfies TextBackend.  Returns the raw trimmed response without
+// extracting Go source — used when the expected output is plain text (e.g.
+// a list of module paths from the dependency selector).
+func (b *CodeLlamaBackend) CompleteText(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	response, err := b.llm.Call(ctx, formatLlamaPrompt(systemPrompt, userPrompt))
+	if err != nil {
+		return "", fmt.Errorf("codellama text completion: %w", err)
+	}
+	return strings.TrimSpace(response), nil
+}
+
 // Complete sends systemPrompt + userPrompt to CodeLlama and returns clean Go source.
 // The two turns are combined using the Llama instruct template so the model
 // treats the system text as a persistent persona rather than part of the task.

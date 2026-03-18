@@ -24,11 +24,12 @@ type Attempt struct {
 
 // Task is the unit of work the orchestrator manages.
 type Task struct {
-	ID       string
-	Status   Status
-	Code     string    // current Go source (updated after each judge repair)
-	Errors   []string  // build errors from the most recent attempt
-	Findings []Finding // tool findings from the most recent attempt
-	Attempts int       // total build+audit attempts made
-	History  []Attempt // every failed attempt in order, oldest first
+	ID           string
+	Status       Status
+	Code         string       // current Go source (updated after each judge repair)
+	Errors       []string     // build errors from the most recent attempt
+	Findings     []Finding    // tool findings from the most recent attempt
+	Attempts     int          // total build+audit attempts made
+	History      []Attempt    // every failed attempt in order, oldest first
+	ApprovedDeps []ApprovedDep // deps approved for this task's sandbox go.mod
 }

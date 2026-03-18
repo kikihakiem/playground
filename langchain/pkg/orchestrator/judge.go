@@ -39,9 +39,10 @@ type CodeGenerator interface {
 // MockJudge is a deterministic test double implementing both JudgeAgent and
 // CodeGenerator. Inject Responses / GeneratedCodes to control what it returns.
 type MockJudge struct {
-	Responses      []string       // consumed in order by Fix
-	GeneratedCodes []string       // consumed in order by GenerateInitialCode
-	Calls          []RepairRequest // every Fix invocation, for assertion in tests
+	Responses            []string        // consumed in order by Fix
+	GeneratedCodes       []string        // consumed in order by GenerateInitialCode
+	Calls                []RepairRequest // every Fix invocation, for assertion in tests
+	GenerateRequirements []string        // every requirement passed to GenerateInitialCode
 }
 
 func (m *MockJudge) Fix(_ context.Context, req RepairRequest) (string, error) {
@@ -57,7 +58,8 @@ func (m *MockJudge) Fix(_ context.Context, req RepairRequest) (string, error) {
 	return resp, nil
 }
 
-func (m *MockJudge) GenerateInitialCode(_ context.Context, _ string) (string, error) {
+func (m *MockJudge) GenerateInitialCode(_ context.Context, req string) (string, error) {
+	m.GenerateRequirements = append(m.GenerateRequirements, req)
 	if len(m.GeneratedCodes) == 0 {
 		return "", fmt.Errorf("MockJudge: no GeneratedCodes configured")
 	}
