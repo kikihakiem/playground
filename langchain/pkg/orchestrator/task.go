@@ -12,12 +12,11 @@ const (
 )
 
 // Task is the unit of work the orchestrator manages.
-// Code holds the Go source the executor will compile; Errors accumulates
-// build diagnostics across attempts so the Judge has full context.
 type Task struct {
 	ID       string
 	Status   Status
-	Code     string   // Go source code to write and compile
-	Errors   []string // build errors from the most recent failed attempt
-	Attempts int      // how many build attempts have been made
+	Code     string    // Go source code being compiled and audited
+	Errors   []string  // compiler errors from the most recent build attempt
+	Findings []Finding // tool findings from the most recent audit (go vet, gosec, staticcheck)
+	Attempts int       // total build+audit attempts made
 }

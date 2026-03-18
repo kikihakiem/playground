@@ -6,44 +6,23 @@ import (
 	"strings"
 )
 
-// Severity classifies how serious a security finding is.
-type Severity string
-
-const (
-	SeverityHigh   Severity = "HIGH"
-	SeverityMedium Severity = "MEDIUM"
-)
-
-// SecurityIssue is one finding from the static audit.
+// SecurityIssue is a finding from the regex-based pre-flight scanner.
+// This is kept as a lightweight fallback for when gosec is not installed.
+// Severity is defined in tools.go and shared across both approaches.
 type SecurityIssue struct {
 	Line        int
 	Severity    Severity
 	Description string
 }
 
-// SecurityAudit holds the outcome of auditing a source file.
+// SecurityAudit holds the outcome of the regex-based audit.
 type SecurityAudit struct {
 	Issues []SecurityIssue
-	Clean  bool // true when Issues is empty
+	Clean  bool
 }
 
-// credentialRe matches variable/constant/field assignments whose left-hand
-// identifier *contains* a credential keyword anywhere (prefix, suffix, or whole
-// name).  Examples caught:
-//
-//	password      = "s3cr3t"      keyword is the full name
-//	dbPassword    = "hunter2"     keyword is a suffix
-//	authToken     = "Bearer ..."  keyword ("token") is a suffix
-//	myApiKey      := "AKIA..."    keyword is a suffix
-//
-// Pattern breakdown:
-//
-//	(?:^|[\s,({])   word-start: beginning of line or a non-word character
-//	\w*?            lazy prefix — the part of the identifier before the keyword
-//	(keyword)       the sensitive term, case-insensitive
-//	\w*             optional suffix (e.g. "Manager" in "passwordManager")
-//	\s*(?::=|=)\s*  assignment operator
-//	"([^"]{3,})"    string literal ≥ 3 chars (avoids flagging empty/trivial strings)
+// credentialRe matches assignments whose identifier contains a credential
+// keyword anywhere (prefix, suffix, or whole name).
 var credentialRe = regexp.MustCompile(
 	`(?i)(?:^|[\s,({])` +
 		`\w*?` +
@@ -53,15 +32,12 @@ var credentialRe = regexp.MustCompile(
 		`"([^"]{3,})"`,
 )
 
-// unsafeImportRe matches both single-import and block-import forms:
-//
-//	import "unsafe"
-//	import ( "unsafe" )
 var unsafeImportRe = regexp.MustCompile(`(?m)^\s*"unsafe"\s*$|import\s+"unsafe"`)
 
-// RunSecurityAudit performs static analysis on the source and returns all
-// findings.  It does NOT modify the source; the caller decides what to do
-// with the issues (e.g. include them in the correction prompt).
+// RunSecurityAudit is the lightweight, regex-based fallback scanner.
+// When gosec is available, the orchestrator uses GosecTool instead and this
+// function is not called in the main pipeline.  It remains useful for fast
+// pre-flight checks in tests and environments without gosec.
 func RunSecurityAudit(code string) SecurityAudit {
 	lines := strings.Split(code, "\n")
 	var issues []SecurityIssue
@@ -69,7 +45,6 @@ func RunSecurityAudit(code string) SecurityAudit {
 	for i, line := range lines {
 		lineNum := i + 1
 
-		// ── 1. unsafe package usage ──────────────────────────────────────────
 		if unsafeImportRe.MatchString(line) {
 			issues = append(issues, SecurityIssue{
 				Line:        lineNum,
@@ -78,7 +53,6 @@ func RunSecurityAudit(code string) SecurityAudit {
 			})
 		}
 
-		// ── 2. Hardcoded credentials ─────────────────────────────────────────
 		if m := credentialRe.FindStringSubmatch(line); m != nil {
 			issues = append(issues, SecurityIssue{
 				Line:     lineNum,
@@ -91,8 +65,5 @@ func RunSecurityAudit(code string) SecurityAudit {
 		}
 	}
 
-	return SecurityAudit{
-		Issues: issues,
-		Clean:  len(issues) == 0,
-	}
+	return SecurityAudit{Issues: issues, Clean: len(issues) == 0}
 }

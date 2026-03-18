@@ -66,42 +66,12 @@ func NewCodeLlamaBackend(opts ...CodeLlamaOption) (*CodeLlamaBackend, error) {
 }
 
 // Complete sends the prompt to CodeLlama and returns clean Go source.
-// Instruct-tuned models often wrap the answer in prose or markdown fences;
-// extractGoSource strips that noise before returning.
+// extractGoSource (defined in structured_judge.go) strips any prose preamble
+// or markdown fences the instruct model may prepend.
 func (b *CodeLlamaBackend) Complete(ctx context.Context, prompt string) (string, error) {
 	response, err := b.llm.Call(ctx, prompt)
 	if err != nil {
 		return "", fmt.Errorf("codellama completion: %w", err)
 	}
 	return extractGoSource(strings.TrimSpace(response)), nil
-}
-
-// extractGoSource pulls the raw Go source out of a model response that may
-// contain markdown fences, explanatory prose, or both.
-//
-// Priority:
-//  1. Content inside a ```go ... ``` or ``` ... ``` fence.
-//  2. Everything from the first "package " line onward (handles prose preamble).
-//  3. The raw response as-is (last resort — lets the build step surface the error).
-func extractGoSource(s string) string {
-	// ── 1. Markdown fences ───────────────────────────────────────────────────
-	// Strip optional "go" language tag after the opening fence.
-	if start := strings.Index(s, "```"); start != -1 {
-		inner := s[start+3:]
-		// Skip the language tag line (e.g. "go\n")
-		if nl := strings.Index(inner, "\n"); nl != -1 {
-			inner = inner[nl+1:]
-		}
-		if end := strings.Index(inner, "```"); end != -1 {
-			return strings.TrimSpace(inner[:end])
-		}
-	}
-
-	// ── 2. Prose preamble before "package" ───────────────────────────────────
-	if idx := strings.Index(s, "package "); idx != -1 {
-		return strings.TrimSpace(s[idx:])
-	}
-
-	// ── 3. Return as-is ──────────────────────────────────────────────────────
-	return s
 }

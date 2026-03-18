@@ -21,6 +21,17 @@ func main() {
 
 	ctx := context.Background()
 
+	// ── Audit tool chain ─────────────────────────────────────────────────────
+	// All three tools are included. Each calls Available() before running;
+	// unavailable tools are silently skipped so the pipeline stays portable.
+	tools := []orchestrator.AnalysisTool{
+		orchestrator.GoVetTool{},
+		orchestrator.GosecTool{},
+		orchestrator.StaticcheckTool{},
+	}
+	reportToolchain(tools)
+
+	// ── Judge / Generator ────────────────────────────────────────────────────
 	var judge     orchestrator.JudgeAgent
 	var generator orchestrator.CodeGenerator
 
@@ -33,29 +44,40 @@ func main() {
 		}
 		sj := &orchestrator.StructuredJudge{LLM: backend}
 		judge, generator = sj, sj
-		fmt.Printf("backend : CodeLlama (%s) via Ollama\n", *model)
+		fmt.Printf("backend  : CodeLlama (%s) via Ollama\n\n", *model)
 	} else {
-		// Mock pipeline: GeneratedCodes[0] is what "generation" returns;
-		// Responses[0] would be used if the initial code fails to build.
+		// The mock code is written to be clean: server has timeouts (gosec G114)
+		// and the error from ListenAndServe is handled (gosec G104).
 		mj := &orchestrator.MockJudge{
 			GeneratedCodes: []string{`package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
+	"time"
 )
 
 func main() {
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "ok")
 	})
+	srv := &http.Server{
+		Addr:         ":8080",
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
 	fmt.Println("listening on :8080")
-	http.ListenAndServe(":8080", nil)
+	if err := srv.ListenAndServe(); err != nil {
+		log.Fatal(err)
+	}
 }
 `},
 		}
 		judge, generator = mj, mj
-		fmt.Println("backend : mock (pass -live to use CodeLlama)")
+		fmt.Println("backend  : mock (pass -live to use CodeLlama)\n")
 	}
 
 	maxRetries := 3
@@ -66,19 +88,25 @@ func main() {
 	loop := &orchestrator.ExecutionLoop{
 		Generator:  generator,
 		Judge:      judge,
+		Tools:      tools,
 		MaxRetries: maxRetries,
 	}
 
 	task := &orchestrator.Task{ID: "task-1"}
-
 	fmt.Printf("requirement: %s\n\n", *requirement)
 
 	if err := loop.RunFromRequirement(ctx, task, *requirement); err != nil {
 		fmt.Printf("FAILED after %d attempt(s): %v\n", task.Attempts, err)
 		if len(task.Errors) > 0 {
-			fmt.Println("last build errors:")
+			fmt.Println("last compiler errors:")
 			for _, e := range task.Errors {
-				fmt.Println(" ", e)
+				fmt.Println("  ", e)
+			}
+		}
+		if len(task.Findings) > 0 {
+			fmt.Println("last tool findings:")
+			for _, f := range task.Findings {
+				fmt.Println("  ", f)
 			}
 		}
 		return
@@ -86,4 +114,16 @@ func main() {
 
 	fmt.Printf("=== result (status=%s, attempts=%d) ===\n", task.Status, task.Attempts)
 	fmt.Println(task.Code)
+}
+
+func reportToolchain(tools []orchestrator.AnalysisTool) {
+	fmt.Println("toolchain:")
+	for _, t := range tools {
+		status := "skipped (not installed)"
+		if t.Available() {
+			status = "available"
+		}
+		fmt.Printf("  %-14s %s\n", t.Name(), status)
+	}
+	fmt.Println()
 }

@@ -3,35 +3,36 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
-// LLMBackend is the thin interface over any text-completion backend.
-// Swap implementations without touching StructuredJudge.
+// LLMBackend is the completion interface over any text model.
 type LLMBackend interface {
 	Complete(ctx context.Context, prompt string) (string, error)
 }
 
-// StructuredJudge implements both JudgeAgent and CodeGenerator.
+// StructuredJudge implements JudgeAgent and CodeGenerator.
 //
-// Fix pipeline:
-//  1. Security audit       — flag unsafe / hardcoded creds
-//  2. Correction prompt    — parse compiler errors, annotate source line-by-line
-//  3. LLM call             — send formatted prompt, receive repaired source
+// Fix pipeline (grounded in real tool output):
+//  1. Build a CorrectionPrompt from the compiler errors + tool findings
+//     (go vet, gosec, staticcheck) that arrived in the RepairRequest.
+//  2. Format the prompt so every finding has file:line location and the
+//     original offending snippet where available.
+//  3. Send to the LLM; return the extracted Go source.
 //
 // GenerateInitialCode pipeline:
-//  1. Generation prompt    — wrap requirement in a structured instruction
-//  2. LLM call             — receive first-draft source
+//  1. Wrap the requirement in a structured instruction.
+//  2. Send to the LLM; return the extracted Go source.
 type StructuredJudge struct {
 	LLM LLMBackend
 }
 
-// Fix satisfies JudgeAgent. It builds a structured prompt that contains the
-// annotated source (with caret markers at every error location) and all
-// security findings, then asks the LLM to return corrected Go source.
-func (j *StructuredJudge) Fix(ctx context.Context, code string, buildErrors []string) (string, error) {
-	audit := RunSecurityAudit(code)
-	prompt := BuildCorrectionPrompt(code, buildErrors, audit.Issues)
-
+// Fix satisfies JudgeAgent.
+// It never performs its own heuristic scanning — all findings come from the
+// real AnalysisTools run by the orchestrator, so the LLM acts on concrete
+// evidence (line numbers, rule IDs, offending snippets) rather than guesses.
+func (j *StructuredJudge) Fix(ctx context.Context, req RepairRequest) (string, error) {
+	prompt := BuildCorrectionPrompt(req.Code, req.BuildErrors, req.Findings)
 	fixed, err := j.LLM.Complete(ctx, prompt.Format())
 	if err != nil {
 		return "", fmt.Errorf("llm backend (fix): %w", err)
@@ -39,8 +40,7 @@ func (j *StructuredJudge) Fix(ctx context.Context, code string, buildErrors []st
 	return fixed, nil
 }
 
-// GenerateInitialCode satisfies CodeGenerator. It asks the LLM to write a
-// complete Go program from a natural-language requirement.
+// GenerateInitialCode satisfies CodeGenerator.
 func (j *StructuredJudge) GenerateInitialCode(ctx context.Context, requirement string) (string, error) {
 	code, err := j.LLM.Complete(ctx, buildGenerationPrompt(requirement))
 	if err != nil {
@@ -49,8 +49,6 @@ func (j *StructuredJudge) GenerateInitialCode(ctx context.Context, requirement s
 	return code, nil
 }
 
-// buildGenerationPrompt wraps a natural-language requirement into an
-// instruction that nudges the model to return raw, compilable Go source.
 func buildGenerationPrompt(requirement string) string {
 	return "You are a Go code generator. Write a complete, working Go program that satisfies the requirement below.\n" +
 		"Rules:\n" +
@@ -63,16 +61,14 @@ func buildGenerationPrompt(requirement string) string {
 
 // ── Mock LLM backend for tests ────────────────────────────────────────────────
 
-// MockLLMBackend is a test double for LLMBackend.
-// It records every prompt it receives and returns injected responses in order.
+// MockLLMBackend records every prompt it receives and returns injected responses.
 type MockLLMBackend struct {
-	Responses []string // consumed in order; last element repeats when exhausted
-	Prompts   []string // all prompts received, for assertion in tests
+	Responses []string
+	Prompts   []string
 }
 
 func (m *MockLLMBackend) Complete(_ context.Context, prompt string) (string, error) {
 	m.Prompts = append(m.Prompts, prompt)
-
 	if len(m.Responses) == 0 {
 		return "", fmt.Errorf("MockLLMBackend: no response configured")
 	}
@@ -81,4 +77,24 @@ func (m *MockLLMBackend) Complete(_ context.Context, prompt string) (string, err
 		m.Responses = m.Responses[1:]
 	}
 	return resp, nil
+}
+
+// ── Response extraction ───────────────────────────────────────────────────────
+// (shared with CodeLlamaBackend via the unexported helper below)
+
+func extractGoSource(s string) string {
+	s = strings.TrimSpace(s)
+	if start := strings.Index(s, "```"); start != -1 {
+		inner := s[start+3:]
+		if nl := strings.Index(inner, "\n"); nl != -1 {
+			inner = inner[nl+1:]
+		}
+		if end := strings.Index(inner, "```"); end != -1 {
+			return strings.TrimSpace(inner[:end])
+		}
+	}
+	if idx := strings.Index(s, "package "); idx != -1 {
+		return strings.TrimSpace(s[idx:])
+	}
+	return s
 }

@@ -4,28 +4,28 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 )
 
-// ExecutionLoop ties together code generation, the build executor, and the
-// judge agent into one self-healing agentic loop:
+// ExecutionLoop is the core agentic loop:
 //
-//	generate code → write to disk → go build → success? done : ask judge to fix → repeat
+//	generate → build+audit → issues? ask judge to fix → repeat
 type ExecutionLoop struct {
-	Generator  CodeGenerator // produces the first version of the code from a requirement
-	Judge      JudgeAgent    // repairs code given compiler errors
-	MaxRetries int           // maximum judge-and-retry cycles (0 = build once, no repair)
+	Generator   CodeGenerator  // produces initial code from a requirement
+	Judge       JudgeAgent     // repairs code given real tool output
+	Tools       []AnalysisTool // run after each successful build (go vet, gosec, staticcheck)
+	MaxRetries  int            // max judge-and-retry cycles (0 = build once, no repair)
+	MinSeverity Severity       // findings below this level are reported but don't trigger repair (default: LOW)
 }
 
-// GenerateInitialCode calls the configured CodeGenerator to populate task.Code
-// from a natural-language requirement. Call this before Run, or use the
-// combined RunFromRequirement helper below.
+// GenerateInitialCode populates task.Code from a natural-language requirement.
 func (el *ExecutionLoop) GenerateInitialCode(ctx context.Context, task *Task, requirement string) error {
 	if el.Generator == nil {
-		return fmt.Errorf("ExecutionLoop.Generator is nil — set a CodeGenerator before calling GenerateInitialCode")
+		return fmt.Errorf("ExecutionLoop.Generator is nil")
 	}
 	code, err := el.Generator.GenerateInitialCode(ctx, requirement)
 	if err != nil {
@@ -35,9 +35,8 @@ func (el *ExecutionLoop) GenerateInitialCode(ctx context.Context, task *Task, re
 	return nil
 }
 
-// RunFromRequirement is the single entry-point for the full agentic pipeline:
-// generate → build → (fix → build)* → done.
-// It first calls GenerateInitialCode to populate task.Code, then calls Run.
+// RunFromRequirement generates initial code then runs the build+audit+fix loop.
+// It is the single entry-point for the full agentic pipeline.
 func (el *ExecutionLoop) RunFromRequirement(ctx context.Context, task *Task, requirement string) error {
 	if err := el.GenerateInitialCode(ctx, task, requirement); err != nil {
 		return err
@@ -45,82 +44,117 @@ func (el *ExecutionLoop) RunFromRequirement(ctx context.Context, task *Task, req
 	return el.Run(ctx, task)
 }
 
-// Run executes the build→fix loop on task.Code, mutating task.Status,
-// task.Errors, and task.Code in place so the caller can inspect each step.
-//
-// It returns nil only when the build succeeds.
-// It returns an error if MaxRetries is exhausted or if any infrastructure call
-// (file I/O, judge) fails unexpectedly.
+// Run executes the build+audit+fix loop on task.Code, mutating task in place.
+// It returns nil only when both compilation and all audit tools come back clean.
 func (el *ExecutionLoop) Run(ctx context.Context, task *Task) error {
 	for {
 		task.Status = StatusRunning
 		task.Attempts++
 
-		errs, err := buildCode(ctx, task.Code)
+		buildErrs, findings, toolErrs, err := buildAndAudit(ctx, task.Code, el.Tools)
 		if err != nil {
-			// Unexpected infrastructure failure — surface immediately.
 			task.Status = StatusFailed
-			return fmt.Errorf("build infrastructure error on attempt %d: %w", task.Attempts, err)
+			return fmt.Errorf("build/audit error on attempt %d: %w", task.Attempts, err)
+		}
+		for _, te := range toolErrs {
+			log.Printf("tool warning: %v", te)
 		}
 
-		if len(errs) == 0 {
+		task.Errors = buildErrs
+		task.Findings = findings
+
+		// Filter findings to only those at or above the minimum severity.
+		// Lower-severity findings are attached to the task for visibility
+		// but do not trigger a repair cycle.
+		actionable := el.filterFindings(findings)
+
+		req := RepairRequest{
+			Code:        task.Code,
+			BuildErrors: buildErrs,
+			Findings:    actionable,
+		}
+
+		if !req.HasIssues() {
 			task.Status = StatusSuccess
-			task.Errors = nil
 			return nil
 		}
 
-		// Build failed — record errors on the task.
-		task.Status = StatusFailed
-		task.Errors = errs
-
-		retriesUsed := task.Attempts - 1 // first attempt is not a retry
+		retriesUsed := task.Attempts - 1
 		if retriesUsed >= el.MaxRetries {
-			return fmt.Errorf("build failed after %d attempt(s), max retries (%d) exhausted: %s",
-				task.Attempts, el.MaxRetries, strings.Join(errs, "; "))
+			task.Status = StatusFailed
+			var summary []string
+			summary = append(summary, buildErrs...)
+			for _, f := range findings {
+				summary = append(summary, f.String())
+			}
+			return fmt.Errorf("failed after %d attempt(s), max retries (%d) exhausted:\n  %s",
+				task.Attempts, el.MaxRetries, strings.Join(summary, "\n  "))
 		}
 
-		// Hand off to the judge agent for repair.
-		fixed, err := el.Judge.Fix(ctx, task.Code, task.Errors)
+		fixed, err := el.Judge.Fix(ctx, req)
 		if err != nil {
 			return fmt.Errorf("judge failed on attempt %d: %w", task.Attempts, err)
 		}
-
 		task.Code = fixed
 		task.Status = StatusRepaired
 	}
 }
 
-// buildCode writes code to a temporary directory, runs `go build ./...`, and
-// returns any compiler error lines. A nil slice means success.
-func buildCode(ctx context.Context, code string) ([]string, error) {
+// filterFindings returns only the findings at or above el.MinSeverity.
+// When MinSeverity is unset it defaults to LOW, keeping HIGH and MEDIUM.
+func (el *ExecutionLoop) filterFindings(findings []Finding) []Finding {
+	min := el.MinSeverity
+	if min == "" {
+		min = SeverityLow
+	}
+	order := map[Severity]int{SeverityHigh: 3, SeverityMedium: 2, SeverityLow: 1, SeverityInfo: 0}
+	threshold := order[min]
+
+	var out []Finding
+	for _, f := range findings {
+		if order[f.Severity] >= threshold {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// buildAndAudit writes code to a temp dir, runs `go build`, and — if the build
+// succeeds — runs all configured audit tools.  It returns compiler errors and
+// tool findings separately so the prompt builder can render them distinctly.
+func buildAndAudit(ctx context.Context, code string, tools []AnalysisTool) (
+	buildErrors []string, findings []Finding, toolErrs []error, err error,
+) {
 	dir, err := os.MkdirTemp("", "orchestrator-*")
 	if err != nil {
-		return nil, fmt.Errorf("create temp dir: %w", err)
+		return nil, nil, nil, fmt.Errorf("create temp dir: %w", err)
 	}
 	defer os.RemoveAll(dir)
 
-	// A minimal go.mod so the sandbox is a valid module.
-	gomod := "module sandbox\n\ngo 1.22\n"
+	gomod := "module sandbox\n\ngo 1.25\n"
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o600); err != nil {
-		return nil, fmt.Errorf("write go.mod: %w", err)
+		return nil, nil, nil, fmt.Errorf("write go.mod: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(code), 0o600); err != nil {
-		return nil, fmt.Errorf("write main.go: %w", err)
+		return nil, nil, nil, fmt.Errorf("write main.go: %w", err)
 	}
 
+	// ── 1. Compile ───────────────────────────────────────────────────────────
 	var stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, "go", "build", "./...")
-	cmd.Dir = dir
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		// go build exited non-zero — parse stderr into individual error lines.
+	buildCmd := exec.CommandContext(ctx, "go", "build", "./...")
+	buildCmd.Dir = dir
+	buildCmd.Stderr = &stderr
+	if runErr := buildCmd.Run(); runErr != nil {
 		raw := strings.TrimSpace(stderr.String())
 		if raw == "" {
-			raw = err.Error() // fallback if stderr was empty
+			raw = runErr.Error()
 		}
-		return strings.Split(raw, "\n"), nil
+		// Compilation failed — skip tools, there's nothing compilable to analyse.
+		return strings.Split(raw, "\n"), nil, nil, nil
 	}
 
-	return nil, nil
+	// ── 2. Audit tools ───────────────────────────────────────────────────────
+	// Tools only run on code that compiles, so their output is always meaningful.
+	ff, errs := RunTools(ctx, tools, dir)
+	return nil, ff, errs, nil
 }

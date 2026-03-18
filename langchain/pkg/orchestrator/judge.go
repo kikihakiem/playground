@@ -5,52 +5,55 @@ import (
 	"fmt"
 )
 
-// JudgeAgent is the interface for the "repair" step.
-// Any backend — mock, OpenAI, LangChain, local LLM — must satisfy this
-// interface, which is how you swap implementations without changing the loop.
-type JudgeAgent interface {
-	// Fix receives the broken Go source and the compiler errors from the last
-	// attempt. It returns a corrected Go source string, or an error if the
-	// backend itself failed.
-	Fix(ctx context.Context, code string, buildErrors []string) (fixedCode string, err error)
+// RepairRequest is everything the JudgeAgent needs to propose a fix.
+// Keeping it as a struct (rather than positional args) makes it easy to
+// extend — e.g. adding a Diff field or a History slice — without changing
+// the interface signature.
+type RepairRequest struct {
+	Code        string    // current Go source under repair
+	BuildErrors []string  // compiler errors; empty when compilation succeeded
+	Findings    []Finding // diagnostics from real tools (go vet, gosec, staticcheck)
 }
 
-// CodeGenerator is the interface for the "initial generation" step.
-// It takes a natural-language requirement and produces the first version of
-// the Go source code that the ExecutionLoop will then attempt to compile.
+// HasIssues returns true when there is anything to fix.
+func (r RepairRequest) HasIssues() bool {
+	return len(r.BuildErrors) > 0 || len(r.Findings) > 0
+}
+
+// JudgeAgent repairs broken or unsafe Go source.
+// It receives a RepairRequest that includes real tool output so the LLM is
+// grounded in concrete evidence rather than guesswork.
+type JudgeAgent interface {
+	Fix(ctx context.Context, req RepairRequest) (fixedCode string, err error)
+}
+
+// CodeGenerator produces the first version of Go source from a natural-language
+// requirement. It is the "plan" phase; JudgeAgent is the "repair" phase.
 type CodeGenerator interface {
 	GenerateInitialCode(ctx context.Context, requirement string) (string, error)
 }
 
-// MockJudge is a test double that implements both JudgeAgent and CodeGenerator.
-// Inject Responses for Fix calls and GeneratedCodes for GenerateInitialCode
-// calls so tests are deterministic and never hit a real LLM.
+// ── MockJudge ────────────────────────────────────────────────────────────────
+
+// MockJudge is a deterministic test double implementing both JudgeAgent and
+// CodeGenerator. Inject Responses / GeneratedCodes to control what it returns.
 type MockJudge struct {
-	// Responses is consumed in order by Fix; last element repeats when exhausted.
-	Responses []string
-	// GeneratedCodes is consumed in order by GenerateInitialCode.
-	GeneratedCodes []string
-	// Calls records every Fix invocation for assertion in tests.
-	Calls []JudgeCall
+	Responses      []string       // consumed in order by Fix
+	GeneratedCodes []string       // consumed in order by GenerateInitialCode
+	Calls          []RepairRequest // every Fix invocation, for assertion in tests
 }
 
-// JudgeCall is a record of one Fix invocation.
-type JudgeCall struct {
-	Code   string
-	Errors []string
-}
-
-func (m *MockJudge) Fix(_ context.Context, code string, buildErrors []string) (string, error) {
-	m.Calls = append(m.Calls, JudgeCall{Code: code, Errors: buildErrors})
+func (m *MockJudge) Fix(_ context.Context, req RepairRequest) (string, error) {
+	m.Calls = append(m.Calls, req)
 
 	if len(m.Responses) == 0 {
-		return code, nil // echo back unchanged so MaxRetries is eventually hit
+		return req.Code, nil // echo back unchanged → MaxRetries will be hit
 	}
-	response := m.Responses[0]
+	resp := m.Responses[0]
 	if len(m.Responses) > 1 {
 		m.Responses = m.Responses[1:]
 	}
-	return response, nil
+	return resp, nil
 }
 
 func (m *MockJudge) GenerateInitialCode(_ context.Context, _ string) (string, error) {

@@ -16,37 +16,32 @@ type LineAnnotation struct {
 }
 
 // CorrectionPrompt is the structured artefact sent to the LLM.
-// Keeping it as a typed struct (rather than a raw string) makes it easy to
-// test each field independently and to swap prompt templates later.
+// Keeping it as a typed struct makes each section independently testable
+// and lets you swap the Format() template without touching callers.
 type CorrectionPrompt struct {
-	AnnotatedSource string           // original source with error markers inlined
+	AnnotatedSource string           // source with compiler-error caret markers
 	Annotations     []LineAnnotation // one per parsed compiler diagnostic
-	SecurityIssues  []SecurityIssue  // from the static audit step
-	RawErrors       []string         // verbatim compiler output lines
+	Findings        []Finding        // real tool output (go vet, gosec, staticcheck)
+	RawErrors       []string         // verbatim compiler output
 }
 
-// goErrorRe matches lines like:
-//
-//	main.go:5:2: undefined: fmt
-//	./main.go:10:15: syntax error: unexpected newline
 var goErrorRe = regexp.MustCompile(`(?:\.\/)?(\S+\.go):(\d+):(\d+):\s*(.+)`)
 
-// BuildCorrectionPrompt parses buildErrors into LineAnnotations, then
-// produces an annotated view of the source so the LLM sees exactly which
-// lines are broken and why.
-func BuildCorrectionPrompt(code string, buildErrors []string, issues []SecurityIssue) CorrectionPrompt {
+// BuildCorrectionPrompt parses buildErrors into line annotations, attaches
+// real tool findings, and builds the annotated source view.
+func BuildCorrectionPrompt(code string, buildErrors []string, findings []Finding) CorrectionPrompt {
 	annotations := parseErrors(buildErrors)
-	annotated := annotateSource(code, annotations)
 	return CorrectionPrompt{
-		AnnotatedSource: annotated,
+		AnnotatedSource: annotateSource(code, annotations),
 		Annotations:     annotations,
-		SecurityIssues:  issues,
+		Findings:        findings,
 		RawErrors:       buildErrors,
 	}
 }
 
-// Format renders the CorrectionPrompt into the prompt string sent to the LLM.
-// Changing the prompt template only requires touching this one method.
+// Format renders the prompt sent to the LLM.
+// All real tool output appears verbatim so the model is grounded in actual
+// engineering diagnostics rather than rephrased summaries.
 func (cp CorrectionPrompt) Format() string {
 	var b strings.Builder
 
@@ -57,20 +52,28 @@ func (cp CorrectionPrompt) Format() string {
 	b.WriteString("- Do NOT write ``` or ```go.\n")
 	b.WriteString("- The very first character of your response must be 'p' (from 'package').\n\n")
 
-	if len(cp.SecurityIssues) > 0 {
-		b.WriteString("=== SECURITY ISSUES (must also be fixed) ===\n")
-		for _, s := range cp.SecurityIssues {
-			b.WriteString(fmt.Sprintf("  [%s] line %d: %s\n", s.Severity, s.Line, s.Description))
+	// ── Tool findings (grounded in real tool output) ─────────────────────────
+	if len(cp.Findings) > 0 {
+		b.WriteString("=== TOOL FINDINGS (fix all of these) ===\n")
+		for _, f := range cp.Findings {
+			b.WriteString(fmt.Sprintf("  %s\n", f.String()))
+			if f.Snippet != "" {
+				b.WriteString(fmt.Sprintf("  code: %s\n", f.Snippet))
+			}
 		}
 		b.WriteString("\n")
 	}
 
-	b.WriteString("=== COMPILER ERRORS ===\n")
-	for _, e := range cp.RawErrors {
-		b.WriteString("  " + e + "\n")
+	// ── Compiler errors ──────────────────────────────────────────────────────
+	if len(cp.RawErrors) > 0 {
+		b.WriteString("=== COMPILER ERRORS ===\n")
+		for _, e := range cp.RawErrors {
+			b.WriteString("  " + e + "\n")
+		}
+		b.WriteString("\n")
 	}
-	b.WriteString("\n")
 
+	// ── Annotated source ─────────────────────────────────────────────────────
 	b.WriteString("=== ANNOTATED SOURCE ===\n")
 	b.WriteString(cp.AnnotatedSource)
 	b.WriteString("\n")
@@ -78,7 +81,6 @@ func (cp CorrectionPrompt) Format() string {
 	return b.String()
 }
 
-// parseErrors extracts structured location information from raw compiler output.
 func parseErrors(lines []string) []LineAnnotation {
 	var out []LineAnnotation
 	for _, line := range lines {
@@ -98,17 +100,9 @@ func parseErrors(lines []string) []LineAnnotation {
 	return out
 }
 
-// annotateSource rebuilds the source with error markers inserted directly
-// after the offending lines, so the LLM sees both code and diagnosis together.
-//
-// Example output:
-//
-//	  5 | 	fmt.Println("hello"
-//	    |	^ col 2: undefined: fmt
 func annotateSource(code string, annotations []LineAnnotation) string {
 	sourceLines := strings.Split(code, "\n")
 
-	// Build a map from 1-based line number → list of annotations on that line.
 	byLine := make(map[int][]LineAnnotation, len(annotations))
 	for _, a := range annotations {
 		byLine[a.Line] = append(byLine[a.Line], a)
@@ -121,14 +115,12 @@ func annotateSource(code string, annotations []LineAnnotation) string {
 	for i, sl := range sourceLines {
 		lineNum := i + 1
 		b.WriteString(fmt.Sprintf(format, lineNum, sl))
-
 		for _, a := range byLine[lineNum] {
-			// Build a caret pointer aligned to the column.
 			col := a.Column
 			if col < 1 {
 				col = 1
 			}
-			pad := strings.Repeat(" ", width+3+col-1) // account for "NNN | " prefix
+			pad := strings.Repeat(" ", width+3+col-1)
 			b.WriteString(fmt.Sprintf("%s^ col %d: %s\n", pad, a.Column, a.Message))
 		}
 	}
