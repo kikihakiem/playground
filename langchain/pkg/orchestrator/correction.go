@@ -45,18 +45,13 @@ func BuildCorrectionPrompt(code string, buildErrors []string, findings []Finding
 	}
 }
 
-// Format renders the prompt sent to the LLM.
+// Format renders the user-turn content sent to the LLM.
+// The model persona (system prompt) is set by the calling agent (DevAgent or
+// AuditorJudge), so Format() contains only the task-specific sections.
 // All real tool output appears verbatim so the model is grounded in actual
 // engineering diagnostics rather than rephrased summaries.
 func (cp CorrectionPrompt) Format() string {
 	var b strings.Builder
-
-	b.WriteString("You are a Go compiler repair tool. Your only job is to return fixed Go source code.\n")
-	b.WriteString("Rules:\n")
-	b.WriteString("- Output ONLY valid Go source code, starting with 'package'.\n")
-	b.WriteString("- Do NOT include any explanation, comments about what changed, or markdown fences.\n")
-	b.WriteString("- Do NOT write ``` or ```go.\n")
-	b.WriteString("- The very first character of your response must be 'p' (from 'package').\n\n")
 
 	// ── Tool findings (grounded in real tool output) ─────────────────────────
 	if len(cp.Findings) > 0 {

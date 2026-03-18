@@ -42,9 +42,12 @@ func main() {
 		if err != nil {
 			log.Fatalf("init CodeLlama backend: %v", err)
 		}
-		sj := &orchestrator.StructuredJudge{LLM: backend}
-		judge, generator = sj, sj
-		fmt.Printf("backend  : CodeLlama (%s) via Ollama\n\n", *model)
+		// Two-persona split: DevAgent writes fast; AuditorJudge repairs safely.
+		generator = &orchestrator.DevAgent{LLM: backend}
+		judge = &orchestrator.AuditorJudge{LLM: backend}
+		fmt.Printf("backend  : CodeLlama (%s) via Ollama\n", *model)
+		fmt.Printf("generator: DevAgent    (junior dev persona)\n")
+		fmt.Printf("judge    : AuditorJudge (senior security auditor persona)\n\n")
 	} else {
 		// The mock code is written to be clean: server has timeouts (gosec G114)
 		// and the error from ListenAndServe is handled (gosec G104).

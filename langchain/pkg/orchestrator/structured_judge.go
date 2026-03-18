@@ -7,33 +7,27 @@ import (
 )
 
 // LLMBackend is the completion interface over any text model.
+// systemPrompt establishes the model's persona and hard constraints;
+// userPrompt carries the task-specific content (code, errors, findings).
+// Pass an empty systemPrompt when no persona is needed.
 type LLMBackend interface {
-	Complete(ctx context.Context, prompt string) (string, error)
+	Complete(ctx context.Context, systemPrompt, userPrompt string) (string, error)
 }
 
-// StructuredJudge implements JudgeAgent and CodeGenerator.
-//
-// Fix pipeline (grounded in real tool output):
-//  1. Build a CorrectionPrompt from the compiler errors + tool findings
-//     (go vet, gosec, staticcheck) that arrived in the RepairRequest.
-//  2. Format the prompt so every finding has file:line location and the
-//     original offending snippet where available.
-//  3. Send to the LLM; return the extracted Go source.
-//
-// GenerateInitialCode pipeline:
-//  1. Wrap the requirement in a structured instruction.
-//  2. Send to the LLM; return the extracted Go source.
+// StructuredJudge implements JudgeAgent and CodeGenerator using a single LLM
+// backend.  It combines both personas in one struct, which is convenient for
+// tests and the mock path.  For production use prefer DevAgent + AuditorJudge,
+// which give each persona its own system prompt.
 type StructuredJudge struct {
 	LLM LLMBackend
 }
 
 // Fix satisfies JudgeAgent.
-// It never performs its own heuristic scanning — all findings come from the
-// real AnalysisTools run by the orchestrator, so the LLM acts on concrete
-// evidence (line numbers, rule IDs, offending snippets) rather than guesses.
+// The auditor system prompt is sent as the model persona; the correction
+// content (errors, findings, annotated source) is the user turn.
 func (j *StructuredJudge) Fix(ctx context.Context, req RepairRequest) (string, error) {
 	prompt := BuildCorrectionPrompt(req.Code, req.BuildErrors, req.Findings, req.History)
-	fixed, err := j.LLM.Complete(ctx, prompt.Format())
+	fixed, err := j.LLM.Complete(ctx, auditorSystemPrompt, prompt.Format())
 	if err != nil {
 		return "", fmt.Errorf("llm backend (fix): %w", err)
 	}
@@ -42,33 +36,27 @@ func (j *StructuredJudge) Fix(ctx context.Context, req RepairRequest) (string, e
 
 // GenerateInitialCode satisfies CodeGenerator.
 func (j *StructuredJudge) GenerateInitialCode(ctx context.Context, requirement string) (string, error) {
-	code, err := j.LLM.Complete(ctx, buildGenerationPrompt(requirement))
+	code, err := j.LLM.Complete(ctx, devSystemPrompt, "Write a Go program that satisfies:\n"+requirement+"\n")
 	if err != nil {
 		return "", fmt.Errorf("llm backend (generate): %w", err)
 	}
 	return code, nil
 }
 
-func buildGenerationPrompt(requirement string) string {
-	return "You are a Go code generator. Write a complete, working Go program that satisfies the requirement below.\n" +
-		"Rules:\n" +
-		"- Output ONLY valid Go source code, starting with 'package main'.\n" +
-		"- The very first character of your response must be 'p' (from 'package').\n" +
-		"- Do NOT include any explanation, prose, or markdown fences (no ```go).\n" +
-		"- The code must compile with 'go build' using only the standard library.\n\n" +
-		"Requirement: " + requirement + "\n"
-}
-
 // ── Mock LLM backend for tests ────────────────────────────────────────────────
 
-// MockLLMBackend records every prompt it receives and returns injected responses.
+// MockLLMBackend records every call it receives and returns injected responses.
+// Prompts holds the user-turn content; SystemPrompts holds the persona/system turn.
+// Both slices are parallel — index N in Prompts corresponds to index N in SystemPrompts.
 type MockLLMBackend struct {
-	Responses []string
-	Prompts   []string
+	Responses     []string
+	Prompts       []string // user-turn prompts, for backward-compat test assertions
+	SystemPrompts []string // system-turn prompts, for persona assertions
 }
 
-func (m *MockLLMBackend) Complete(_ context.Context, prompt string) (string, error) {
-	m.Prompts = append(m.Prompts, prompt)
+func (m *MockLLMBackend) Complete(_ context.Context, systemPrompt, userPrompt string) (string, error) {
+	m.Prompts = append(m.Prompts, userPrompt)
+	m.SystemPrompts = append(m.SystemPrompts, systemPrompt)
 	if len(m.Responses) == 0 {
 		return "", fmt.Errorf("MockLLMBackend: no response configured")
 	}

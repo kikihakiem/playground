@@ -233,6 +233,94 @@ func TestStructuredJudge_Fix_PropagatesLLMError(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Multi-agent persona separation: DevAgent + AuditorJudge
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestDevAgent_UsesDevSystemPrompt(t *testing.T) {
+	llm := &orchestrator.MockLLMBackend{Responses: []string{"package main\nfunc main(){}"}}
+	agent := &orchestrator.DevAgent{LLM: llm}
+
+	_, err := agent.GenerateInitialCode(context.Background(), "print hello")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(llm.SystemPrompts) == 0 {
+		t.Fatal("DevAgent should pass a system prompt")
+	}
+	sys := llm.SystemPrompts[0]
+	for _, want := range []string{"Junior", "package main"} {
+		if !strings.Contains(sys, want) {
+			t.Errorf("dev system prompt missing %q:\n%s", want, sys)
+		}
+	}
+	if strings.Contains(sys, "Auditor") {
+		t.Error("dev system prompt should not contain auditor persona")
+	}
+}
+
+func TestAuditorJudge_UsesAuditorSystemPrompt(t *testing.T) {
+	llm := &orchestrator.MockLLMBackend{Responses: []string{"package main\nfunc main(){}"}}
+	judge := &orchestrator.AuditorJudge{LLM: llm}
+
+	req := orchestrator.RepairRequest{
+		Code:        "package main\nfunc main() {}",
+		BuildErrors: []string{"main.go:1:1: undefined: x"},
+	}
+	_, err := judge.Fix(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(llm.SystemPrompts) == 0 {
+		t.Fatal("AuditorJudge should pass a system prompt")
+	}
+	sys := llm.SystemPrompts[0]
+	for _, want := range []string{"Senior", "Auditor"} {
+		if !strings.Contains(sys, want) {
+			t.Errorf("auditor system prompt missing %q:\n%s", want, sys)
+		}
+	}
+	if strings.Contains(sys, "Junior") {
+		t.Error("auditor system prompt should not contain dev persona")
+	}
+}
+
+func TestAuditorJudge_UserPromptContainsFindings(t *testing.T) {
+	llm := &orchestrator.MockLLMBackend{Responses: []string{"package main\nfunc main(){}"}}
+	judge := &orchestrator.AuditorJudge{LLM: llm}
+
+	req := orchestrator.RepairRequest{
+		Code: "package main\nconst password = \"s3cr3t\"\nfunc main() {}",
+		Findings: []orchestrator.Finding{
+			{Tool: "gosec", File: "main.go", Line: 2, Severity: orchestrator.SeverityHigh,
+				Rule: "G101", Message: "hardcoded credential", Snippet: `const password = "s3cr3t"`},
+		},
+	}
+	_, err := judge.Fix(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	userPrompt := llm.Prompts[0]
+	for _, want := range []string{"TOOL FINDINGS", "G101", "hardcoded credential", "ANNOTATED SOURCE"} {
+		if !strings.Contains(userPrompt, want) {
+			t.Errorf("auditor user prompt missing %q", want)
+		}
+	}
+}
+
+func TestDevAgent_UserPromptContainsRequirement(t *testing.T) {
+	llm := &orchestrator.MockLLMBackend{Responses: []string{"package main\nfunc main(){}"}}
+	agent := &orchestrator.DevAgent{LLM: llm}
+
+	_, err := agent.GenerateInitialCode(context.Background(), "serve HTTP on port 9090")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(llm.Prompts[0], "serve HTTP on port 9090") {
+		t.Errorf("user prompt should contain the requirement, got: %q", llm.Prompts[0])
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // History / anti-flip-flop memory
 // ─────────────────────────────────────────────────────────────────────────────
 

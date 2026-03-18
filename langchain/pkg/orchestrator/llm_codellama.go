@@ -65,13 +65,25 @@ func NewCodeLlamaBackend(opts ...CodeLlamaOption) (*CodeLlamaBackend, error) {
 	return &CodeLlamaBackend{llm: llm}, nil
 }
 
-// Complete sends the prompt to CodeLlama and returns clean Go source.
+// Complete sends systemPrompt + userPrompt to CodeLlama and returns clean Go source.
+// The two turns are combined using the Llama instruct template so the model
+// treats the system text as a persistent persona rather than part of the task.
 // extractGoSource (defined in structured_judge.go) strips any prose preamble
 // or markdown fences the instruct model may prepend.
-func (b *CodeLlamaBackend) Complete(ctx context.Context, prompt string) (string, error) {
-	response, err := b.llm.Call(ctx, prompt)
+func (b *CodeLlamaBackend) Complete(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	response, err := b.llm.Call(ctx, formatLlamaPrompt(systemPrompt, userPrompt))
 	if err != nil {
 		return "", fmt.Errorf("codellama completion: %w", err)
 	}
 	return extractGoSource(strings.TrimSpace(response)), nil
+}
+
+// formatLlamaPrompt combines system + user text using the CodeLlama instruct
+// template.  When no system prompt is provided the [INST] wrapper is still
+// applied so the model stays in instruction-following mode.
+func formatLlamaPrompt(system, user string) string {
+	if system == "" {
+		return "[INST] " + user + " [/INST]"
+	}
+	return "[INST] <<SYS>>\n" + system + "\n<</SYS>>\n\n" + user + " [/INST]"
 }
