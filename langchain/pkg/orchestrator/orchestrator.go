@@ -3,12 +3,14 @@ package orchestrator
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // ExecutionLoop is the core agentic loop:
@@ -21,6 +23,7 @@ type ExecutionLoop struct {
 	Tools       []AnalysisTool     // run after each successful build (go vet, gosec, staticcheck)
 	MaxRetries  int                // max judge-and-retry cycles (0 = build once, no repair)
 	MinSeverity Severity           // findings below this level are reported but don't trigger repair (default: LOW)
+	Timeout     time.Duration      // wall-clock cap for the full pipeline; 0 = no limit
 }
 
 // GenerateInitialCode populates task.Code from a natural-language requirement.
@@ -40,10 +43,17 @@ func (el *ExecutionLoop) GenerateInitialCode(ctx context.Context, task *Task, re
 // It is the single entry-point for the full agentic pipeline.
 //
 // Pipeline:
-//  1. (optional) DependencyApprover selects allowed external packages
-//  2. Requirement is enriched with dep hints and passed to GenerateInitialCode
-//  3. Build+audit+fix loop runs until clean or retries are exhausted
+//  1. (optional) Timeout is applied to the context for the entire pipeline
+//  2. (optional) DependencyApprover selects allowed external packages
+//  3. Requirement is enriched with dep hints and passed to GenerateInitialCode
+//  4. Build+audit+fix loop runs until clean or retries are exhausted
 func (el *ExecutionLoop) RunFromRequirement(ctx context.Context, task *Task, requirement string) error {
+	if el.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, el.Timeout)
+		defer cancel()
+	}
+
 	enriched := requirement
 
 	if el.Deps != nil {
@@ -73,6 +83,9 @@ func (el *ExecutionLoop) Run(ctx context.Context, task *Task) error {
 		buildErrs, findings, toolErrs, err := buildAndAudit(ctx, task.Code, el.Tools, task.ApprovedDeps)
 		if err != nil {
 			task.Status = StatusFailed
+			if errors.Is(err, context.DeadlineExceeded) {
+				return fmt.Errorf("pipeline timeout (%v) exceeded on attempt %d: %w", el.Timeout, task.Attempts, err)
+			}
 			return fmt.Errorf("build/audit error on attempt %d: %w", task.Attempts, err)
 		}
 		for _, te := range toolErrs {
@@ -123,6 +136,10 @@ func (el *ExecutionLoop) Run(ctx context.Context, task *Task) error {
 
 		fixed, err := el.Judge.Fix(ctx, req)
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				task.Status = StatusFailed
+				return fmt.Errorf("pipeline timeout (%v) exceeded waiting for judge on attempt %d: %w", el.Timeout, task.Attempts, err)
+			}
 			return fmt.Errorf("judge failed on attempt %d: %w", task.Attempts, err)
 		}
 		task.Code = fixed
@@ -181,6 +198,9 @@ func buildAndAudit(ctx context.Context, code string, tools []AnalysisTool, deps 
 		tidyCmd.Dir = dir
 		tidyCmd.Stderr = &tidyStderr
 		if tidyErr := tidyCmd.Run(); tidyErr != nil {
+			if ctx.Err() != nil {
+				return nil, nil, nil, ctx.Err()
+			}
 			raw := strings.TrimSpace(tidyStderr.String())
 			if raw == "" {
 				raw = tidyErr.Error()
@@ -195,6 +215,9 @@ func buildAndAudit(ctx context.Context, code string, tools []AnalysisTool, deps 
 	buildCmd.Dir = dir
 	buildCmd.Stderr = &stderr
 	if runErr := buildCmd.Run(); runErr != nil {
+		if ctx.Err() != nil {
+			return nil, nil, nil, ctx.Err()
+		}
 		raw := strings.TrimSpace(stderr.String())
 		if raw == "" {
 			raw = runErr.Error()

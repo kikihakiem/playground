@@ -2,8 +2,10 @@ package orchestrator_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/khakiem/playground/langchain/pkg/orchestrator"
 )
@@ -246,6 +248,40 @@ func TestExecutionLoop_RunFromRequirement_GenerateAndFix(t *testing.T) {
 	}
 	if len(mj.Calls[0].BuildErrors) == 0 {
 		t.Error("judge should receive real compiler errors from go build")
+	}
+}
+
+func TestExecutionLoop_Timeout_ExpiresBeforeBuild(t *testing.T) {
+	mj := &orchestrator.MockJudge{GeneratedCodes: []string{brokenCode}}
+	loop := &orchestrator.ExecutionLoop{
+		Generator:  mj,
+		Judge:      mj,
+		MaxRetries: 10,
+		Timeout:    1 * time.Millisecond, // expires before or during first build
+	}
+	task := &orchestrator.Task{ID: "timeout-1"}
+
+	err := loop.RunFromRequirement(context.Background(), task, "anything")
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("expected DeadlineExceeded in error chain, got: %v", err)
+	}
+}
+
+func TestExecutionLoop_Timeout_ZeroMeansNoLimit(t *testing.T) {
+	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
+	loop := &orchestrator.ExecutionLoop{
+		Generator:  mj,
+		Judge:      mj,
+		MaxRetries: 1,
+		Timeout:    0, // no limit
+	}
+	task := &orchestrator.Task{ID: "timeout-zero"}
+
+	if err := loop.RunFromRequirement(context.Background(), task, "print ok"); err != nil {
+		t.Fatalf("unexpected error with zero timeout: %v", err)
 	}
 }
 

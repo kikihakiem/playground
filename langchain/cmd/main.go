@@ -33,8 +33,9 @@ func main() {
 		"Build a simple HTTP server that listens on port 8080 and responds to GET /health with status 200 and body 'ok'",
 		"natural-language description of the Go program to generate",
 	)
-	live  := flag.Bool("live", false, "use CodeLlama via Ollama instead of the mock")
-	model := flag.String("model", orchestrator.DefaultModel, "Ollama model tag")
+	live    := flag.Bool("live", false, "use CodeLlama via Ollama instead of the mock")
+	model   := flag.String("model", orchestrator.DefaultModel, "Ollama model tag")
+	timeout := flag.Duration("timeout", 0, "wall-clock limit for the full pipeline (e.g. 5m); 0 = no limit")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -119,6 +120,7 @@ func main() {
 		Deps:       depsAgent,
 		Tools:      tools,
 		MaxRetries: maxRetries,
+		Timeout:    *timeout,
 	}
 
 	task := &orchestrator.Task{ID: "task-1"}
