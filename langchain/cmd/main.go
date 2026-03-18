@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/khakiem/playground/langchain/pkg/orchestrator"
 )
@@ -122,6 +123,7 @@ func main() {
 		Tools:         tools,
 		MaxRetries:    maxRetries,
 		Timeout:       *timeout,
+		Logger:        os.Stderr,
 	}
 
 	task := &orchestrator.Task{ID: "task-1"}

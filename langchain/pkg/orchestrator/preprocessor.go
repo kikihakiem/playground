@@ -182,6 +182,33 @@ func fixMissingImports(src string) (string, error) {
 // injectImports adds paths to the first "import (...)" block in src.
 // If no grouped import block exists, a new one is created after the
 // "package" declaration line.
+// importDiff returns the import paths present in after but not in before.
+// Both inputs are Go source strings; unparseable input yields an empty result.
+func importDiff(before, after string) []string {
+	extract := func(src string) map[string]bool {
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, "", src, 0)
+		if err != nil {
+			return nil
+		}
+		m := make(map[string]bool, len(f.Imports))
+		for _, imp := range f.Imports {
+			m[strings.Trim(imp.Path.Value, `"`)] = true
+		}
+		return m
+	}
+	beforeSet := extract(before)
+	afterSet := extract(after)
+	var added []string
+	for p := range afterSet {
+		if !beforeSet[p] {
+			added = append(added, p)
+		}
+	}
+	sort.Strings(added)
+	return added
+}
+
 func injectImports(src string, paths []string) string {
 	var b strings.Builder
 	for _, p := range paths {
