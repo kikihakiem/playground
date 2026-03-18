@@ -1,6 +1,9 @@
 package orchestrator
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // JudgeAgent is the interface for the "repair" step.
 // Any backend — mock, OpenAI, LangChain, local LLM — must satisfy this
@@ -12,14 +15,22 @@ type JudgeAgent interface {
 	Fix(ctx context.Context, code string, buildErrors []string) (fixedCode string, err error)
 }
 
-// MockJudge is a test double. You inject the sequence of responses you expect
-// so unit tests are deterministic and don't hit any real LLM.
-type MockJudge struct {
-	// Responses is consumed in order; each call to Fix pops the first element.
-	// If the slice is exhausted, Fix returns the last element again.
-	Responses []string
+// CodeGenerator is the interface for the "initial generation" step.
+// It takes a natural-language requirement and produces the first version of
+// the Go source code that the ExecutionLoop will then attempt to compile.
+type CodeGenerator interface {
+	GenerateInitialCode(ctx context.Context, requirement string) (string, error)
+}
 
-	// Calls records every invocation for inspection in tests.
+// MockJudge is a test double that implements both JudgeAgent and CodeGenerator.
+// Inject Responses for Fix calls and GeneratedCodes for GenerateInitialCode
+// calls so tests are deterministic and never hit a real LLM.
+type MockJudge struct {
+	// Responses is consumed in order by Fix; last element repeats when exhausted.
+	Responses []string
+	// GeneratedCodes is consumed in order by GenerateInitialCode.
+	GeneratedCodes []string
+	// Calls records every Fix invocation for assertion in tests.
 	Calls []JudgeCall
 }
 
@@ -33,14 +44,22 @@ func (m *MockJudge) Fix(_ context.Context, code string, buildErrors []string) (s
 	m.Calls = append(m.Calls, JudgeCall{Code: code, Errors: buildErrors})
 
 	if len(m.Responses) == 0 {
-		// Nothing injected — return the code unchanged so the loop eventually
-		// hits MaxRetries and surfaces the real error to the caller.
-		return code, nil
+		return code, nil // echo back unchanged so MaxRetries is eventually hit
 	}
-
 	response := m.Responses[0]
 	if len(m.Responses) > 1 {
 		m.Responses = m.Responses[1:]
 	}
 	return response, nil
+}
+
+func (m *MockJudge) GenerateInitialCode(_ context.Context, _ string) (string, error) {
+	if len(m.GeneratedCodes) == 0 {
+		return "", fmt.Errorf("MockJudge: no GeneratedCodes configured")
+	}
+	code := m.GeneratedCodes[0]
+	if len(m.GeneratedCodes) > 1 {
+		m.GeneratedCodes = m.GeneratedCodes[1:]
+	}
+	return code, nil
 }

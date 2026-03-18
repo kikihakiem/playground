@@ -10,17 +10,43 @@ import (
 	"strings"
 )
 
-// ExecutionLoop ties together the build executor and the judge agent.
-// It is the core of the self-healing agentic loop:
+// ExecutionLoop ties together code generation, the build executor, and the
+// judge agent into one self-healing agentic loop:
 //
-//	write code → go build → success? done : ask judge to fix → repeat
+//	generate code → write to disk → go build → success? done : ask judge to fix → repeat
 type ExecutionLoop struct {
-	Judge      JudgeAgent
-	MaxRetries int // maximum number of judge-and-retry cycles (0 = build once, no repair)
+	Generator  CodeGenerator // produces the first version of the code from a requirement
+	Judge      JudgeAgent    // repairs code given compiler errors
+	MaxRetries int           // maximum judge-and-retry cycles (0 = build once, no repair)
 }
 
-// Run executes the loop for the given task, mutating task.Status, task.Errors,
-// and task.Code in place so the caller can inspect intermediate states.
+// GenerateInitialCode calls the configured CodeGenerator to populate task.Code
+// from a natural-language requirement. Call this before Run, or use the
+// combined RunFromRequirement helper below.
+func (el *ExecutionLoop) GenerateInitialCode(ctx context.Context, task *Task, requirement string) error {
+	if el.Generator == nil {
+		return fmt.Errorf("ExecutionLoop.Generator is nil — set a CodeGenerator before calling GenerateInitialCode")
+	}
+	code, err := el.Generator.GenerateInitialCode(ctx, requirement)
+	if err != nil {
+		return fmt.Errorf("generate initial code: %w", err)
+	}
+	task.Code = code
+	return nil
+}
+
+// RunFromRequirement is the single entry-point for the full agentic pipeline:
+// generate → build → (fix → build)* → done.
+// It first calls GenerateInitialCode to populate task.Code, then calls Run.
+func (el *ExecutionLoop) RunFromRequirement(ctx context.Context, task *Task, requirement string) error {
+	if err := el.GenerateInitialCode(ctx, task, requirement); err != nil {
+		return err
+	}
+	return el.Run(ctx, task)
+}
+
+// Run executes the build→fix loop on task.Code, mutating task.Status,
+// task.Errors, and task.Code in place so the caller can inspect each step.
 //
 // It returns nil only when the build succeeds.
 // It returns an error if MaxRetries is exhausted or if any infrastructure call

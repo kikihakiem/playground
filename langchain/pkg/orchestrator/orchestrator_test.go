@@ -121,3 +121,100 @@ func TestExecutionLoop_ZeroRetries(t *testing.T) {
 		t.Errorf("want exactly 1 attempt, got %d", task.Attempts)
 	}
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GenerateInitialCode / RunFromRequirement
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestExecutionLoop_GenerateInitialCode_PopulatesTaskCode(t *testing.T) {
+	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
+	loop := &orchestrator.ExecutionLoop{Generator: mj, Judge: mj, MaxRetries: 0}
+	task := &orchestrator.Task{ID: "gen-1"}
+
+	if err := loop.GenerateInitialCode(context.Background(), task, "print ok"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if task.Code != validCode {
+		t.Errorf("task.Code not populated: got %q", task.Code)
+	}
+}
+
+func TestExecutionLoop_GenerateInitialCode_NilGeneratorErrors(t *testing.T) {
+	loop := &orchestrator.ExecutionLoop{Judge: &orchestrator.MockJudge{}, MaxRetries: 0}
+	err := loop.GenerateInitialCode(context.Background(), &orchestrator.Task{}, "anything")
+	if err == nil {
+		t.Fatal("expected error when Generator is nil")
+	}
+}
+
+func TestExecutionLoop_GenerateInitialCode_ExhaustedMockErrors(t *testing.T) {
+	mj := &orchestrator.MockJudge{} // no GeneratedCodes
+	loop := &orchestrator.ExecutionLoop{Generator: mj, Judge: mj, MaxRetries: 0}
+	err := loop.GenerateInitialCode(context.Background(), &orchestrator.Task{}, "anything")
+	if err == nil {
+		t.Fatal("expected error when MockJudge has no GeneratedCodes")
+	}
+}
+
+func TestExecutionLoop_RunFromRequirement_FullPipeline_Success(t *testing.T) {
+	// Generation produces valid code on the first call → no fix needed.
+	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
+	loop := &orchestrator.ExecutionLoop{Generator: mj, Judge: mj, MaxRetries: 3}
+	task := &orchestrator.Task{ID: "full-1"}
+
+	if err := loop.RunFromRequirement(context.Background(), task, "print ok"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if task.Status != orchestrator.StatusSuccess {
+		t.Errorf("want %q, got %q", orchestrator.StatusSuccess, task.Status)
+	}
+	if task.Attempts != 1 {
+		t.Errorf("want 1 build attempt, got %d", task.Attempts)
+	}
+	if len(mj.Calls) != 0 {
+		t.Errorf("judge should not be called when generated code compiles, got %d calls", len(mj.Calls))
+	}
+}
+
+func TestExecutionLoop_RunFromRequirement_FullPipeline_GenerateAndFix(t *testing.T) {
+	// Generation produces broken code; judge provides the fix.
+	mj := &orchestrator.MockJudge{
+		GeneratedCodes: []string{brokenCode},
+		Responses:      []string{validCode},
+	}
+	loop := &orchestrator.ExecutionLoop{Generator: mj, Judge: mj, MaxRetries: 3}
+	task := &orchestrator.Task{ID: "full-2"}
+
+	if err := loop.RunFromRequirement(context.Background(), task, "print ok"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if task.Status != orchestrator.StatusSuccess {
+		t.Errorf("want %q, got %q", orchestrator.StatusSuccess, task.Status)
+	}
+	// 1 attempt with generated (broken) code + 1 attempt with fixed code.
+	if task.Attempts != 2 {
+		t.Errorf("want 2 attempts, got %d", task.Attempts)
+	}
+	if len(mj.Calls) != 1 {
+		t.Errorf("want judge called once, got %d", len(mj.Calls))
+	}
+	// Verify the judge received the actual compiler errors, not an empty slice.
+	if len(mj.Calls[0].Errors) == 0 {
+		t.Error("judge should receive real compiler errors from go build")
+	}
+}
+
+func TestExecutionLoop_RunFromRequirement_GenerationFails_Propagates(t *testing.T) {
+	mj := &orchestrator.MockJudge{} // no GeneratedCodes → GenerateInitialCode returns error
+	loop := &orchestrator.ExecutionLoop{Generator: mj, Judge: mj, MaxRetries: 3}
+	task := &orchestrator.Task{ID: "full-3"}
+
+	err := loop.RunFromRequirement(context.Background(), task, "anything")
+	if err == nil {
+		t.Fatal("expected error when generation fails")
+	}
+	// Loop should not have attempted any build.
+	if task.Attempts != 0 {
+		t.Errorf("build should not have been attempted, got %d attempts", task.Attempts)
+	}
+}

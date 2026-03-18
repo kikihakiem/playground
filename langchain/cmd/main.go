@@ -9,28 +9,21 @@ import (
 	"github.com/khakiem/playground/langchain/pkg/orchestrator"
 )
 
-// brokenCode has two problems the model must fix:
-//   1. Missing closing parenthesis in Println call
-//   2. Hardcoded credential (flagged by the security audit)
-const brokenCode = `package main
-
-import "fmt"
-
-const apiKey = "SUPER_SECRET_KEY_123"
-
 func main() {
-	fmt.Println("starting server"
-}
-`
-
-func main() {
-	live := flag.Bool("live", false, "use CodeLlama via Ollama instead of the mock judge")
+	requirement := flag.String(
+		"requirement",
+		"Build a simple HTTP server that listens on port 8080 and responds to GET /health with status 200 and body 'ok'",
+		"natural-language description of the Go program to generate",
+	)
+	live  := flag.Bool("live", false, "use CodeLlama via Ollama instead of the mock")
 	model := flag.String("model", orchestrator.DefaultModel, "Ollama model tag")
 	flag.Parse()
 
 	ctx := context.Background()
 
-	var judge orchestrator.JudgeAgent
+	var judge     orchestrator.JudgeAgent
+	var generator orchestrator.CodeGenerator
+
 	if *live {
 		backend, err := orchestrator.NewCodeLlamaBackend(
 			orchestrator.WithCodeLlamaModel(*model),
@@ -38,44 +31,52 @@ func main() {
 		if err != nil {
 			log.Fatalf("init CodeLlama backend: %v", err)
 		}
-		judge = &orchestrator.StructuredJudge{LLM: backend}
-		fmt.Printf("judge: CodeLlama (%s) via Ollama\n\n", *model)
+		sj := &orchestrator.StructuredJudge{LLM: backend}
+		judge, generator = sj, sj
+		fmt.Printf("backend : CodeLlama (%s) via Ollama\n", *model)
 	} else {
-		// Mock judge: returns valid code on the first fix attempt.
-		judge = &orchestrator.MockJudge{
-			Responses: []string{`package main
+		// Mock pipeline: GeneratedCodes[0] is what "generation" returns;
+		// Responses[0] would be used if the initial code fails to build.
+		mj := &orchestrator.MockJudge{
+			GeneratedCodes: []string{`package main
 
-import "fmt"
+import (
+	"fmt"
+	"net/http"
+)
 
 func main() {
-	fmt.Println("starting server")
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "ok")
+	})
+	fmt.Println("listening on :8080")
+	http.ListenAndServe(":8080", nil)
 }
 `},
 		}
-		fmt.Println("judge: mock (run with -live to use CodeLlama)\n")
-	}
-
-	task := &orchestrator.Task{
-		ID:   "demo",
-		Code: brokenCode,
+		judge, generator = mj, mj
+		fmt.Println("backend : mock (pass -live to use CodeLlama)")
 	}
 
 	maxRetries := 3
 	if *live {
-		maxRetries = 6 // 7B model may take several iterations to converge
+		maxRetries = 6
 	}
+
 	loop := &orchestrator.ExecutionLoop{
+		Generator:  generator,
 		Judge:      judge,
 		MaxRetries: maxRetries,
 	}
 
-	fmt.Println("=== Initial code ===")
-	fmt.Println(brokenCode)
+	task := &orchestrator.Task{ID: "task-1"}
 
-	if err := loop.Run(ctx, task); err != nil {
+	fmt.Printf("requirement: %s\n\n", *requirement)
+
+	if err := loop.RunFromRequirement(ctx, task, *requirement); err != nil {
 		fmt.Printf("FAILED after %d attempt(s): %v\n", task.Attempts, err)
 		if len(task.Errors) > 0 {
-			fmt.Println("Last build errors:")
+			fmt.Println("last build errors:")
 			for _, e := range task.Errors {
 				fmt.Println(" ", e)
 			}
@@ -83,6 +84,6 @@ func main() {
 		return
 	}
 
-	fmt.Printf("=== Repaired code (status=%s, attempts=%d) ===\n", task.Status, task.Attempts)
+	fmt.Printf("=== result (status=%s, attempts=%d) ===\n", task.Status, task.Attempts)
 	fmt.Println(task.Code)
 }
