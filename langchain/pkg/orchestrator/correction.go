@@ -24,6 +24,7 @@ type CorrectionPrompt struct {
 	Findings        []Finding        // real tool output (go vet, gosec, staticcheck)
 	RawErrors       []string         // verbatim compiler output
 	History         []Attempt        // all prior failed attempts, for anti-flip-flop context
+	HumanFeedback   string           // optional guidance from a human reviewer injected at the escape hatch
 }
 
 // maxHistoryInPrompt caps how many past attempts we include.
@@ -52,6 +53,13 @@ func BuildCorrectionPrompt(code string, buildErrors []string, findings []Finding
 // engineering diagnostics rather than rephrased summaries.
 func (cp CorrectionPrompt) Format() string {
 	var b strings.Builder
+
+	// ── Human reviewer feedback (highest priority — address this first) ──────
+	if cp.HumanFeedback != "" {
+		b.WriteString("=== HUMAN REVIEWER FEEDBACK (address this before anything else) ===\n")
+		b.WriteString(cp.HumanFeedback)
+		b.WriteString("\n\n")
+	}
 
 	// ── Tool findings (grounded in real tool output) ─────────────────────────
 	if len(cp.Findings) > 0 {

@@ -34,9 +34,10 @@ func main() {
 		"Build a simple HTTP server that listens on port 8080 and responds to GET /health with status 200 and body 'ok'",
 		"natural-language description of the Go program to generate",
 	)
-	live    := flag.Bool("live", false, "use CodeLlama via Ollama instead of the mock")
-	model   := flag.String("model", orchestrator.DefaultModel, "Ollama model tag")
+	live   := flag.Bool("live", false, "use CodeLlama via Ollama instead of the mock")
+	model  := flag.String("model", orchestrator.DefaultModel, "Ollama model tag")
 	timeout := flag.Duration("timeout", 0, "wall-clock limit for the full pipeline (e.g. 5m); 0 = no limit")
+	review := flag.Bool("review", false, "pause before generation and ask a human to approve the requirement")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -115,15 +116,21 @@ func main() {
 		fmt.Println()
 	}
 
+	var reqReviewer orchestrator.RequirementReviewer
+	if *review {
+		reqReviewer = orchestrator.TerminalRequirementReviewer{}
+	}
+
 	loop := &orchestrator.ExecutionLoop{
-		Generator:     generator,
-		Judge:         judge,
-		Deps:          depsAgent,
-		Preprocessors: []orchestrator.Preprocessor{orchestrator.ImportFixer{}},
-		Tools:         tools,
-		MaxRetries:    maxRetries,
-		Timeout:       *timeout,
-		Logger:        os.Stderr,
+		Generator:           generator,
+		Judge:               judge,
+		Deps:                depsAgent,
+		Preprocessors:       []orchestrator.Preprocessor{orchestrator.ImportFixer{}},
+		Tools:               tools,
+		MaxRetries:          maxRetries,
+		Timeout:             *timeout,
+		Logger:              os.Stderr,
+		RequirementReviewer: reqReviewer,
 	}
 
 	task := &orchestrator.Task{ID: "task-1"}

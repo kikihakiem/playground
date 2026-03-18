@@ -18,15 +18,17 @@ import (
 //
 //	approve deps → generate → build+audit → issues? ask judge to fix → repeat
 type ExecutionLoop struct {
-	Generator     CodeGenerator      // produces initial code from a requirement
-	Judge         JudgeAgent         // repairs code given real tool output
-	Deps          DependencyApprover // optional; nil = stdlib-only
-	Preprocessors []Preprocessor     // applied to code before every build attempt
-	Tools         []AnalysisTool     // run after each successful build (go vet, gosec, staticcheck)
-	MaxRetries    int                // max judge-and-retry cycles (0 = build once, no repair)
-	MinSeverity   Severity           // findings below this level are reported but don't trigger repair (default: LOW)
-	Timeout       time.Duration      // wall-clock cap for the full pipeline; 0 = no limit
-	Logger        io.Writer          // progress log destination; nil = silent
+	Generator           CodeGenerator        // produces initial code from a requirement
+	Judge               JudgeAgent           // repairs code given real tool output
+	Deps                DependencyApprover   // optional; nil = stdlib-only
+	Preprocessors       []Preprocessor       // applied to code before every build attempt
+	Tools               []AnalysisTool       // run after each successful build (go vet, gosec, staticcheck)
+	MaxRetries          int                  // max judge-and-retry cycles (0 = build once, no repair)
+	MinSeverity         Severity             // findings below this level are reported but don't trigger repair (default: LOW)
+	Timeout             time.Duration        // wall-clock cap for the full pipeline; 0 = no limit
+	Logger              io.Writer            // progress log destination; nil = silent
+	RequirementReviewer RequirementReviewer  // checkpoint 1: human validates the requirement before generation
+	Reviewer            Reviewer             // checkpoints 2 & 3: escape hatch + post-success compliance gate
 }
 
 // logf writes a formatted line to the logger when one is configured.
@@ -73,6 +75,22 @@ func (el *ExecutionLoop) RunFromRequirement(ctx context.Context, task *Task, req
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, el.Timeout)
 		defer cancel()
+	}
+
+	task.Requirement = requirement
+
+	// ── Checkpoint 1: Requirement validation ────────────────────────────────
+	if el.RequirementReviewer != nil {
+		el.logPhase("review", "→ awaiting requirement sign-off...")
+		approved, feedback, revErr := el.RequirementReviewer.ReviewRequirement(ctx, requirement)
+		if revErr != nil {
+			return fmt.Errorf("requirement reviewer error: %w", revErr)
+		}
+		if !approved {
+			el.logPhase("review", fmt.Sprintf("✗ rejected: %s", feedback))
+			return fmt.Errorf("requirement rejected by human reviewer: %s", feedback)
+		}
+		el.logPhase("review", "✓ requirement approved")
 	}
 
 	enriched := requirement
@@ -187,6 +205,27 @@ func (el *ExecutionLoop) Run(ctx context.Context, task *Task) error {
 
 		if !req.HasIssues() {
 			task.Status = StatusSuccess
+
+			// ── Checkpoint 3: Post-success compliance gate ───────────────────
+			if el.Reviewer != nil {
+				task.Status = StatusPendingReview
+				el.logPhase("review", "→ awaiting compliance sign-off...")
+				approved, feedback, revErr := el.Reviewer.Review(ctx, task)
+				if revErr != nil {
+					task.Status = StatusFailed
+					el.logResult(false, task.Attempts, "reviewer error")
+					return fmt.Errorf("post-success reviewer error: %w", revErr)
+				}
+				if !approved {
+					task.Status = StatusFailed
+					el.logPhase("review", fmt.Sprintf("✗ rejected: %s", feedback))
+					el.logResult(false, task.Attempts, "compliance review failed")
+					return fmt.Errorf("compliance reviewer rejected: %s", feedback)
+				}
+				task.Status = StatusSuccess
+				el.logPhase("review", "✓ approved")
+			}
+
 			el.logResult(true, task.Attempts, "")
 			return nil
 		}
@@ -200,6 +239,29 @@ func (el *ExecutionLoop) Run(ctx context.Context, task *Task) error {
 			Findings:    actionable,
 		})
 		req.History = task.History
+
+		// ── Checkpoint 2: Flip-flop escape hatch ─────────────────────────────
+		// If the same errors repeat on consecutive attempts the judge is stuck.
+		// Pause and let a human inject guidance rather than burning all retries.
+		if el.Reviewer != nil && isFlipFlop(task.History) {
+			el.logPhase("review", "⚠ loop detected — awaiting human guidance...")
+			task.Status = StatusPendingReview
+			approved, feedback, revErr := el.Reviewer.Review(ctx, task)
+			if revErr != nil {
+				task.Status = StatusFailed
+				el.logResult(false, task.Attempts, "reviewer error")
+				return fmt.Errorf("reviewer error on attempt %d: %w", task.Attempts, revErr)
+			}
+			if !approved {
+				task.Status = StatusFailed
+				el.logPhase("review", fmt.Sprintf("✗ rejected: %s", feedback))
+				el.logResult(false, task.Attempts, "human reviewer rejected")
+				return fmt.Errorf("human reviewer rejected after %d attempt(s): %s", task.Attempts, feedback)
+			}
+			task.Status = StatusRunning
+			el.logPhase("review", "✓ human approved — injecting feedback into next repair")
+			req.HumanFeedback = feedback
+		}
 
 		retriesUsed := task.Attempts - 1
 		if retriesUsed >= el.MaxRetries {
@@ -277,6 +339,41 @@ func (el *ExecutionLoop) filterFindings(findings []Finding) []Finding {
 		}
 	}
 	return out
+}
+
+// isFlipFlop reports true when the last two history entries have identical
+// errors and findings, meaning the judge made no observable progress and is
+// likely stuck in a repair pattern that cannot converge without human input.
+func isFlipFlop(history []Attempt) bool {
+	if len(history) < 2 {
+		return false
+	}
+	a, b := history[len(history)-2], history[len(history)-1]
+	return stringSlicesEqual(a.BuildErrors, b.BuildErrors) && attemptFindingsEqual(a.Findings, b.Findings)
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func attemptFindingsEqual(a, b []Finding) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Rule != b[i].Rule || a[i].Message != b[i].Message {
+			return false
+		}
+	}
+	return true
 }
 
 // buildAndAudit writes code to a temp dir, runs `go build`, and — if the build
