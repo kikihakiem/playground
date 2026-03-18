@@ -75,7 +75,8 @@ func TestSecurityAudit_EmptyStringNotFlagged(t *testing.T) {
 
 func TestBuildCorrectionPrompt_ParsesLineAndColumn(t *testing.T) {
 	errors := []string{"main.go:5:2: undefined: fmt"}
-	cp := orchestrator.BuildCorrectionPrompt("package main\n\nfunc main() {\n\tfmt.Println()\n}\n", errors, nil)
+	cp := orchestrator.BuildCorrectionPrompt("package main\n\nfunc main() {\n\tfmt.Println()\n}\n", errors, nil, nil)
+
 
 	if len(cp.Annotations) != 1 {
 		t.Fatalf("expected 1 annotation, got %d", len(cp.Annotations))
@@ -90,7 +91,7 @@ func TestBuildCorrectionPrompt_ParsesLineAndColumn(t *testing.T) {
 }
 
 func TestBuildCorrectionPrompt_ParsesRelativePath(t *testing.T) {
-	cp := orchestrator.BuildCorrectionPrompt("", []string{"./main.go:3:1: syntax error: unexpected }"}, nil)
+	cp := orchestrator.BuildCorrectionPrompt("", []string{"./main.go:3:1: syntax error: unexpected }"}, nil, nil)
 	if len(cp.Annotations) != 1 || cp.Annotations[0].Line != 3 {
 		t.Errorf("expected annotation at line 3, got %+v", cp.Annotations)
 	}
@@ -98,7 +99,7 @@ func TestBuildCorrectionPrompt_ParsesRelativePath(t *testing.T) {
 
 func TestBuildCorrectionPrompt_SkipsNonErrorLines(t *testing.T) {
 	errors := []string{"# sandbox", "[build failed]", "main.go:2:1: expected 'package', found 'EOF'"}
-	cp := orchestrator.BuildCorrectionPrompt("", errors, nil)
+	cp := orchestrator.BuildCorrectionPrompt("", errors, nil, nil)
 	if len(cp.Annotations) != 1 {
 		t.Errorf("expected 1 annotation, got %d", len(cp.Annotations))
 	}
@@ -110,7 +111,7 @@ func TestBuildCorrectionPrompt_MultipleErrors(t *testing.T) {
 		"main.go:7:12: cannot use \"str\" (untyped string) as int",
 		"main.go:10:1: syntax error: unexpected EOF",
 	}
-	cp := orchestrator.BuildCorrectionPrompt("", errors, nil)
+	cp := orchestrator.BuildCorrectionPrompt("", errors, nil, nil)
 	if len(cp.Annotations) != 3 {
 		t.Errorf("expected 3 annotations, got %d", len(cp.Annotations))
 	}
@@ -120,7 +121,7 @@ func TestBuildCorrectionPrompt_AttachesFindings(t *testing.T) {
 	findings := []orchestrator.Finding{
 		{Tool: "gosec", File: "main.go", Line: 3, Severity: orchestrator.SeverityHigh, Rule: "G101", Message: "Potential hardcoded credentials"},
 	}
-	cp := orchestrator.BuildCorrectionPrompt("package main\nfunc main() {}", nil, findings)
+	cp := orchestrator.BuildCorrectionPrompt("package main\nfunc main() {}", nil, findings, nil)
 	if len(cp.Findings) != 1 {
 		t.Fatalf("expected 1 finding attached, got %d", len(cp.Findings))
 	}
@@ -133,7 +134,7 @@ func TestCorrectionPrompt_Format_ContainsRequiredSections(t *testing.T) {
 	findings := []orchestrator.Finding{
 		{Tool: "gosec", Severity: orchestrator.SeverityHigh, Rule: "G101", Message: "Potential hardcoded credentials", File: "main.go", Line: 3},
 	}
-	cp := orchestrator.BuildCorrectionPrompt("package main\nfunc main() {}", []string{"main.go:2:1: undefined: fmt"}, findings)
+	cp := orchestrator.BuildCorrectionPrompt("package main\nfunc main() {}", []string{"main.go:2:1: undefined: fmt"}, findings, nil)
 	formatted := cp.Format()
 
 	for _, want := range []string{"TOOL FINDINGS", "COMPILER ERRORS", "ANNOTATED SOURCE", "undefined: fmt", "G101"} {
@@ -145,7 +146,7 @@ func TestCorrectionPrompt_Format_ContainsRequiredSections(t *testing.T) {
 
 func TestCorrectionPrompt_Format_AnnotatesCorrectLine(t *testing.T) {
 	code := "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"hello\"\n}\n"
-	cp := orchestrator.BuildCorrectionPrompt(code, []string{"main.go:6:20: syntax error: unexpected newline"}, nil)
+	cp := orchestrator.BuildCorrectionPrompt(code, []string{"main.go:6:20: syntax error: unexpected newline"}, nil, nil)
 	if !strings.Contains(cp.Format(), "^ col 20") {
 		t.Errorf("expected caret annotation '^ col 20' in formatted output:\n%s", cp.Format())
 	}
@@ -156,7 +157,7 @@ func TestCorrectionPrompt_Format_IncludesSnippet(t *testing.T) {
 		{Tool: "gosec", File: "main.go", Line: 3, Severity: orchestrator.SeverityHigh,
 			Rule: "G101", Message: "hardcoded cred", Snippet: `const apiKey = "SECRET"`},
 	}
-	cp := orchestrator.BuildCorrectionPrompt("", nil, findings)
+	cp := orchestrator.BuildCorrectionPrompt("", nil, findings, nil)
 	if !strings.Contains(cp.Format(), `const apiKey = "SECRET"`) {
 		t.Error("formatted prompt should include the offending snippet from gosec")
 	}
@@ -232,6 +233,79 @@ func TestStructuredJudge_Fix_PropagatesLLMError(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// History / anti-flip-flop memory
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestBuildCorrectionPrompt_HistoryAppearsInFormat(t *testing.T) {
+	history := []orchestrator.Attempt{
+		{Number: 1, Code: "package main\nfunc main() {}", BuildErrors: []string{"main.go:1:1: bad"}},
+	}
+	cp := orchestrator.BuildCorrectionPrompt("package main\nfunc main() {}", nil, nil, history)
+	formatted := cp.Format()
+	if !strings.Contains(formatted, "ATTEMPT HISTORY") {
+		t.Error("formatted prompt missing ATTEMPT HISTORY section")
+	}
+	if !strings.Contains(formatted, "Attempt 1") {
+		t.Error("formatted prompt missing attempt number")
+	}
+	if !strings.Contains(formatted, "main.go:1:1: bad") {
+		t.Error("formatted prompt missing build error from history")
+	}
+}
+
+func TestBuildCorrectionPrompt_NoHistoryOmitsSection(t *testing.T) {
+	cp := orchestrator.BuildCorrectionPrompt("package main\nfunc main() {}", nil, nil, nil)
+	if strings.Contains(cp.Format(), "ATTEMPT HISTORY") {
+		t.Error("should not include ATTEMPT HISTORY when history is empty")
+	}
+}
+
+func TestBuildCorrectionPrompt_HistoryCappedAtThree(t *testing.T) {
+	var history []orchestrator.Attempt
+	for i := 1; i <= 5; i++ {
+		history = append(history, orchestrator.Attempt{
+			Number:      i,
+			Code:        "package main",
+			BuildErrors: []string{"err"},
+		})
+	}
+	cp := orchestrator.BuildCorrectionPrompt("package main", nil, nil, history)
+	formatted := cp.Format()
+	// Only the last 3 attempts should be in the prompt.
+	if strings.Contains(formatted, "Attempt 1") || strings.Contains(formatted, "Attempt 2") {
+		t.Error("oldest attempts beyond cap of 3 should be excluded from prompt")
+	}
+	for _, want := range []string{"Attempt 3", "Attempt 4", "Attempt 5"} {
+		if !strings.Contains(formatted, want) {
+			t.Errorf("expected recent %s in prompt", want)
+		}
+	}
+}
+
+func TestStructuredJudge_Fix_PassesHistoryToPrompt(t *testing.T) {
+	llm := &orchestrator.MockLLMBackend{Responses: []string{"package main\nfunc main(){}"}}
+	judge := &orchestrator.StructuredJudge{LLM: llm}
+
+	req := orchestrator.RepairRequest{
+		Code:        "package main\nfunc main() {}",
+		BuildErrors: []string{"main.go:1:1: err"},
+		History: []orchestrator.Attempt{
+			{Number: 1, Code: "package main", BuildErrors: []string{"main.go:1:1: previous error"}},
+		},
+	}
+	_, err := judge.Fix(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(llm.Prompts[0], "ATTEMPT HISTORY") {
+		t.Error("prompt should contain ATTEMPT HISTORY when history is provided")
+	}
+	if !strings.Contains(llm.Prompts[0], "previous error") {
+		t.Error("prompt should contain error message from prior attempt")
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Compiler error parser regression table
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -254,7 +328,7 @@ func TestParseErrors_CommonSyntaxErrors(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cp := orchestrator.BuildCorrectionPrompt("", []string{tc.raw}, nil)
+			cp := orchestrator.BuildCorrectionPrompt("", []string{tc.raw}, nil, nil)
 			if len(cp.Annotations) != 1 {
 				t.Fatalf("want 1 annotation, got %d", len(cp.Annotations))
 			}

@@ -23,19 +23,25 @@ type CorrectionPrompt struct {
 	Annotations     []LineAnnotation // one per parsed compiler diagnostic
 	Findings        []Finding        // real tool output (go vet, gosec, staticcheck)
 	RawErrors       []string         // verbatim compiler output
+	History         []Attempt        // all prior failed attempts, for anti-flip-flop context
 }
+
+// maxHistoryInPrompt caps how many past attempts we include.
+// Older attempts are less relevant and inflate token count unnecessarily.
+const maxHistoryInPrompt = 3
 
 var goErrorRe = regexp.MustCompile(`(?:\.\/)?(\S+\.go):(\d+):(\d+):\s*(.+)`)
 
 // BuildCorrectionPrompt parses buildErrors into line annotations, attaches
-// real tool findings, and builds the annotated source view.
-func BuildCorrectionPrompt(code string, buildErrors []string, findings []Finding) CorrectionPrompt {
+// real tool findings and the attempt history, and builds the annotated source view.
+func BuildCorrectionPrompt(code string, buildErrors []string, findings []Finding, history []Attempt) CorrectionPrompt {
 	annotations := parseErrors(buildErrors)
 	return CorrectionPrompt{
 		AnnotatedSource: annotateSource(code, annotations),
 		Annotations:     annotations,
 		Findings:        findings,
 		RawErrors:       buildErrors,
+		History:         history,
 	}
 }
 
@@ -73,11 +79,50 @@ func (cp CorrectionPrompt) Format() string {
 		b.WriteString("\n")
 	}
 
+	// ── Attempt history (anti-flip-flop context) ─────────────────────────────
+	if len(cp.History) > 0 {
+		start := len(cp.History) - maxHistoryInPrompt
+		if start < 0 {
+			start = 0
+		}
+		recent := cp.History[start:]
+		b.WriteString("=== ATTEMPT HISTORY (do NOT repeat these broken patterns) ===\n")
+		for _, a := range recent {
+			b.WriteString(fmt.Sprintf("--- Attempt %d ---\n", a.Number))
+			b.WriteString(renderCodeCompact(a.Code))
+			if len(a.BuildErrors) > 0 {
+				b.WriteString("Build errors:\n")
+				for _, e := range a.BuildErrors {
+					b.WriteString("  " + e + "\n")
+				}
+			}
+			for _, f := range a.Findings {
+				b.WriteString("  " + f.String() + "\n")
+			}
+		}
+		b.WriteString("\n")
+	}
+
 	// ── Annotated source ─────────────────────────────────────────────────────
 	b.WriteString("=== ANNOTATED SOURCE ===\n")
 	b.WriteString(cp.AnnotatedSource)
 	b.WriteString("\n")
 
+	return b.String()
+}
+
+// renderCodeCompact returns code with line numbers, truncated to 40 lines so
+// history in the prompt stays concise.
+func renderCodeCompact(code string) string {
+	const maxLines = 40
+	lines := strings.Split(code, "\n")
+	if len(lines) > maxLines {
+		lines = append(lines[:maxLines], fmt.Sprintf("... (%d more lines)", len(lines)-maxLines))
+	}
+	var b strings.Builder
+	for i, l := range lines {
+		b.WriteString(fmt.Sprintf("%3d | %s\n", i+1, l))
+	}
 	return b.String()
 }
 

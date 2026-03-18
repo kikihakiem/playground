@@ -32,7 +32,7 @@ type StructuredJudge struct {
 // real AnalysisTools run by the orchestrator, so the LLM acts on concrete
 // evidence (line numbers, rule IDs, offending snippets) rather than guesses.
 func (j *StructuredJudge) Fix(ctx context.Context, req RepairRequest) (string, error) {
-	prompt := BuildCorrectionPrompt(req.Code, req.BuildErrors, req.Findings)
+	prompt := BuildCorrectionPrompt(req.Code, req.BuildErrors, req.Findings, req.History)
 	fixed, err := j.LLM.Complete(ctx, prompt.Format())
 	if err != nil {
 		return "", fmt.Errorf("llm backend (fix): %w", err)

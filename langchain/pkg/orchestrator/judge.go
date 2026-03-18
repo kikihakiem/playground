@@ -13,6 +13,7 @@ type RepairRequest struct {
 	Code        string    // current Go source under repair
 	BuildErrors []string  // compiler errors; empty when compilation succeeded
 	Findings    []Finding // diagnostics from real tools (go vet, gosec, staticcheck)
+	History     []Attempt // all prior failed attempts, oldest first
 }
 
 // HasIssues returns true when there is anything to fix.

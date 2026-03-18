@@ -79,6 +79,17 @@ func (el *ExecutionLoop) Run(ctx context.Context, task *Task) error {
 			return nil
 		}
 
+		// Snapshot this failed attempt before calling the judge so the judge
+		// receives the full history including the current failure. The LLM
+		// can then avoid repeating code patterns that already produced errors.
+		task.History = append(task.History, Attempt{
+			Number:      task.Attempts,
+			Code:        task.Code,
+			BuildErrors: buildErrs,
+			Findings:    actionable,
+		})
+		req.History = task.History
+
 		retriesUsed := task.Attempts - 1
 		if retriesUsed >= el.MaxRetries {
 			task.Status = StatusFailed
