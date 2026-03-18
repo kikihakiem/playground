@@ -72,8 +72,7 @@ func main() {
 		//   LLMDependencyAgent — selects which allowlisted packages to use
 		generator = &orchestrator.DevAgent{LLM: backend}
 		judge = &orchestrator.AuditorJudge{LLM: backend}
-		depsAgent = &orchestrator.LLMDependencyAgent{
-			LLM:       backend,
+		depsAgent = &orchestrator.AllowlistApprover{
 			Allowlist: standardAllowlist,
 		}
 		maxRetries = 6

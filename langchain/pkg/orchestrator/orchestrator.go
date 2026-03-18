@@ -93,8 +93,6 @@ func (el *ExecutionLoop) RunFromRequirement(ctx context.Context, task *Task, req
 		el.logPhase("review", "✓ requirement approved")
 	}
 
-	enriched := requirement
-
 	if el.Deps != nil {
 		el.logPhase("deps", "approving packages...")
 		deps, err := el.Deps.ApproveDeps(ctx, requirement)
@@ -107,15 +105,14 @@ func (el *ExecutionLoop) RunFromRequirement(ctx context.Context, task *Task, req
 			for i, d := range deps {
 				names[i] = d.Module + " " + d.Version
 			}
-			el.logPhase("deps", fmt.Sprintf("✓ %d approved: %s", len(deps), strings.Join(names, ", ")))
-			enriched = EnrichRequirement(requirement, deps)
+			el.logPhase("deps", fmt.Sprintf("✓ allowlist: %s (guard enforces at build-time)", strings.Join(names, ", ")))
 		} else {
-			el.logPhase("deps", "none needed (stdlib only)")
+			el.logPhase("deps", "none (stdlib only)")
 		}
 	}
 
 	el.logPhase("generate", "requesting initial code from DevAgent...")
-	if err := el.GenerateInitialCode(ctx, task, enriched); err != nil {
+	if err := el.GenerateInitialCode(ctx, task, requirement); err != nil {
 		return err
 	}
 	el.logPhase("generate", fmt.Sprintf("✓ received %d line(s)", strings.Count(task.Code, "\n")+1))
@@ -198,9 +195,10 @@ func (el *ExecutionLoop) Run(ctx context.Context, task *Task) error {
 		// ── Check for issues ───────────────────────────────────────────────
 		actionable := el.filterFindings(findings)
 		req := RepairRequest{
-			Code:        task.Code,
-			BuildErrors: buildErrs,
-			Findings:    actionable,
+			Code:         task.Code,
+			BuildErrors:  buildErrs,
+			Findings:     actionable,
+			ApprovedDeps: task.ApprovedDeps,
 		}
 
 		if !req.HasIssues() {
@@ -398,7 +396,16 @@ func buildAndAudit(ctx context.Context, code string, tools []AnalysisTool, deps 
 		return nil, nil, nil, fmt.Errorf("write main.go: %w", err)
 	}
 
-	// ── 0. Fetch external deps ────────────────────────────────────────────────
+	// ── 0. Dependency guard (pre-build) ──────────────────────────────────────
+	// Runs on the source text before go mod tidy so the judge gets a clear,
+	// human-readable rejection instead of a confusing tidy/build error.
+	if len(deps) > 0 {
+		if violations := checkImportAllowlist(code, deps); len(violations) > 0 {
+			return violations, nil, nil, nil
+		}
+	}
+
+	// ── 1. Fetch external deps ────────────────────────────────────────────────
 	// go mod tidy downloads approved packages and generates go.sum.
 	// Errors are returned as build errors — a wrong import path in the generated
 	// code is a code problem, not an infrastructure problem.
@@ -419,7 +426,7 @@ func buildAndAudit(ctx context.Context, code string, tools []AnalysisTool, deps 
 		}
 	}
 
-	// ── 1. Compile ───────────────────────────────────────────────────────────
+	// ── 2. Compile ───────────────────────────────────────────────────────────
 	var stderr bytes.Buffer
 	buildCmd := exec.CommandContext(ctx, "go", "build", "./...")
 	buildCmd.Dir = dir
@@ -436,7 +443,7 @@ func buildAndAudit(ctx context.Context, code string, tools []AnalysisTool, deps 
 		return strings.Split(raw, "\n"), nil, nil, nil
 	}
 
-	// ── 2. Audit tools ───────────────────────────────────────────────────────
+	// ── 3. Audit tools ───────────────────────────────────────────────────────
 	// Tools only run on code that compiles, so their output is always meaningful.
 	ff, errs := RunTools(ctx, tools, dir)
 	return nil, ff, errs, nil

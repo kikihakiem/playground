@@ -25,6 +25,7 @@ type CorrectionPrompt struct {
 	RawErrors       []string         // verbatim compiler output
 	History         []Attempt        // all prior failed attempts, for anti-flip-flop context
 	HumanFeedback   string           // optional guidance from a human reviewer injected at the escape hatch
+	ApprovedDeps    []ApprovedDep    // allowlisted external packages; injected by AuditorJudge only
 }
 
 // maxHistoryInPrompt caps how many past attempts we include.
@@ -53,6 +54,15 @@ func BuildCorrectionPrompt(code string, buildErrors []string, findings []Finding
 // engineering diagnostics rather than rephrased summaries.
 func (cp CorrectionPrompt) Format() string {
 	var b strings.Builder
+
+	// ── Allowed external packages (late-stage injection for auditor only) ────
+	if len(cp.ApprovedDeps) > 0 {
+		b.WriteString("=== ALLOWED EXTERNAL PACKAGES (use these or stdlib only) ===\n")
+		for _, d := range cp.ApprovedDeps {
+			b.WriteString(fmt.Sprintf("  import %q  // %s\n", d.Module, d.Desc))
+		}
+		b.WriteString("Do NOT import any other external package.\n\n")
+	}
 
 	// ── Human reviewer feedback (highest priority — address this first) ──────
 	if cp.HumanFeedback != "" {

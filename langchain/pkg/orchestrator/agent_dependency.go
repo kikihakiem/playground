@@ -3,6 +3,8 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"strings"
 )
 
@@ -114,6 +116,61 @@ func parseDepResponse(raw string, allowlist []ApprovedDep) []ApprovedDep {
 		}
 	}
 	return result
+}
+
+// ── DependencyGuard ───────────────────────────────────────────────────────────
+
+// checkImportAllowlist parses the import block of src and returns one error
+// string per unauthorized non-stdlib import.  A package is authorized if its
+// path matches a module in allowlist (exact or sub-package prefix).
+// Syntax errors are ignored — go build will surface them separately.
+func checkImportAllowlist(src string, allowlist []ApprovedDep) []string {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "main.go", src, 0)
+	if err != nil {
+		return nil
+	}
+
+	allowedNames := make([]string, 0, len(allowlist))
+	for _, d := range allowlist {
+		allowedNames = append(allowedNames, d.Module)
+	}
+	hint := ""
+	if len(allowedNames) > 0 {
+		hint = " Allowed: [" + strings.Join(allowedNames, ", ") + "]."
+	}
+
+	var violations []string
+	for _, imp := range f.Imports {
+		path := strings.Trim(imp.Path.Value, `"`)
+		if isStdlibImport(path) {
+			continue
+		}
+		authorized := false
+		for _, d := range allowlist {
+			if path == d.Module || strings.HasPrefix(path, d.Module+"/") {
+				authorized = true
+				break
+			}
+		}
+		if !authorized {
+			violations = append(violations, fmt.Sprintf(
+				"dep-guard: import %q is not on the allowlist.%s Refactor to use only stdlib or an allowed package.",
+				path, hint,
+			))
+		}
+	}
+	return violations
+}
+
+// isStdlibImport returns true when path has no "." in its first segment
+// (e.g. "fmt", "net/http", "encoding/json" are stdlib; "github.com/foo" is not).
+func isStdlibImport(path string) bool {
+	first := path
+	if i := strings.Index(path, "/"); i >= 0 {
+		first = path[:i]
+	}
+	return !strings.Contains(first, ".")
 }
 
 // ── MockDependencyApprover ────────────────────────────────────────────────────

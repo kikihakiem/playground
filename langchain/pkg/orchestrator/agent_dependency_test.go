@@ -233,7 +233,9 @@ func TestExecutionLoop_NilDepsApprover_NoChange(t *testing.T) {
 	}
 }
 
-func TestExecutionLoop_DepsApproverEnrichesRequirement(t *testing.T) {
+func TestExecutionLoop_DepsApprover_RawRequirementPassedToGenerator(t *testing.T) {
+	// On-demand pattern: the DevAgent receives the original requirement without
+	// dep hints. The allowlist is reserved for the DependencyGuard and AuditorJudge.
 	dep := orchestrator.ApprovedDep{
 		Module:  "github.com/google/uuid",
 		Version: "v1.6.0",
@@ -244,19 +246,19 @@ func TestExecutionLoop_DepsApproverEnrichesRequirement(t *testing.T) {
 	loop := &orchestrator.ExecutionLoop{
 		Generator: mj, Judge: mj, Deps: approver, MaxRetries: 0,
 	}
-	task := &orchestrator.Task{ID: "deps-enrich"}
+	task := &orchestrator.Task{ID: "deps-raw"}
 	_ = loop.RunFromRequirement(context.Background(), task, "generate a UUID")
 
 	if len(approver.Calls) != 1 {
 		t.Fatalf("want 1 ApproveDeps call, got %d", len(approver.Calls))
 	}
-	// The requirement passed to GenerateInitialCode should contain the dep hint.
 	if len(mj.GenerateRequirements) == 0 {
 		t.Fatal("MockJudge did not record the requirement")
 	}
-	enriched := mj.GenerateRequirements[0]
-	if !strings.Contains(enriched, "github.com/google/uuid") {
-		t.Errorf("enriched requirement should contain dep module path, got: %q", enriched)
+	// Requirement must be passed verbatim — no dep hints injected.
+	got := mj.GenerateRequirements[0]
+	if got != "generate a UUID" {
+		t.Errorf("DevAgent should receive the raw requirement; got: %q", got)
 	}
 }
 

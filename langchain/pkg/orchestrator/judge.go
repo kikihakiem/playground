@@ -10,11 +10,12 @@ import (
 // extend — e.g. adding a Diff field or a History slice — without changing
 // the interface signature.
 type RepairRequest struct {
-	Code          string    // current Go source under repair
-	BuildErrors   []string  // compiler errors; empty when compilation succeeded
-	Findings      []Finding // diagnostics from real tools (go vet, gosec, staticcheck)
-	History       []Attempt // all prior failed attempts, oldest first
-	HumanFeedback string    // optional guidance injected by a human reviewer at the escape hatch
+	Code          string        // current Go source under repair
+	BuildErrors   []string      // compiler errors; empty when compilation succeeded
+	Findings      []Finding     // diagnostics from real tools (go vet, gosec, staticcheck)
+	History       []Attempt     // all prior failed attempts, oldest first
+	HumanFeedback string        // optional guidance injected by a human reviewer at the escape hatch
+	ApprovedDeps  []ApprovedDep // allowlisted external packages the judge may use
 }
 
 // HasIssues returns true when there is anything to fix.

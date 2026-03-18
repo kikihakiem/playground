@@ -29,6 +29,7 @@ type AuditorJudge struct {
 func (a *AuditorJudge) Fix(ctx context.Context, req RepairRequest) (string, error) {
 	prompt := BuildCorrectionPrompt(req.Code, req.BuildErrors, req.Findings, req.History)
 	prompt.HumanFeedback = req.HumanFeedback
+	prompt.ApprovedDeps = req.ApprovedDeps
 	fixed, err := a.LLM.Complete(ctx, auditorSystemPrompt, prompt.Format())
 	if err != nil {
 		return "", fmt.Errorf("auditor judge: %w", err)
