@@ -50,8 +50,12 @@ func BuildCorrectionPrompt(code string, buildErrors []string, issues []SecurityI
 func (cp CorrectionPrompt) Format() string {
 	var b strings.Builder
 
-	b.WriteString("You are a Go expert. Fix the code below so it compiles cleanly.\n")
-	b.WriteString("Return ONLY the corrected Go source — no explanation, no markdown fences.\n\n")
+	b.WriteString("You are a Go compiler repair tool. Your only job is to return fixed Go source code.\n")
+	b.WriteString("Rules:\n")
+	b.WriteString("- Output ONLY valid Go source code, starting with 'package'.\n")
+	b.WriteString("- Do NOT include any explanation, comments about what changed, or markdown fences.\n")
+	b.WriteString("- Do NOT write ``` or ```go.\n")
+	b.WriteString("- The very first character of your response must be 'p' (from 'package').\n\n")
 
 	if len(cp.SecurityIssues) > 0 {
 		b.WriteString("=== SECURITY ISSUES (must also be fixed) ===\n")

@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -80,9 +81,12 @@ func RunSecurityAudit(code string) SecurityAudit {
 		// ── 2. Hardcoded credentials ─────────────────────────────────────────
 		if m := credentialRe.FindStringSubmatch(line); m != nil {
 			issues = append(issues, SecurityIssue{
-				Line:        lineNum,
-				Severity:    SeverityHigh,
-				Description: `hardcoded credential in "` + m[1] + `" — use environment variables or a secrets manager`,
+				Line:     lineNum,
+				Severity: SeverityHigh,
+				Description: fmt.Sprintf(
+					`hardcoded credential detected — change to: var %s = os.Getenv("%s"); add "os" to imports if not present`,
+					m[1], strings.ToUpper(m[1]),
+				),
 			})
 		}
 	}

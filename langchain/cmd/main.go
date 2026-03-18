@@ -2,69 +2,87 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 
 	"github.com/khakiem/playground/langchain/pkg/orchestrator"
 )
 
+// brokenCode has two problems the model must fix:
+//   1. Missing closing parenthesis in Println call
+//   2. Hardcoded credential (flagged by the security audit)
+const brokenCode = `package main
+
+import "fmt"
+
+const apiKey = "SUPER_SECRET_KEY_123"
+
 func main() {
-	// --- Scenario 1: broken code that the mock judge repairs on the first try ---
-	brokenCode := `package main
+	fmt.Println("starting server"
+}
+`
+
+func main() {
+	live := flag.Bool("live", false, "use CodeLlama via Ollama instead of the mock judge")
+	model := flag.String("model", orchestrator.DefaultModel, "Ollama model tag")
+	flag.Parse()
+
+	ctx := context.Background()
+
+	var judge orchestrator.JudgeAgent
+	if *live {
+		backend, err := orchestrator.NewCodeLlamaBackend(
+			orchestrator.WithCodeLlamaModel(*model),
+		)
+		if err != nil {
+			log.Fatalf("init CodeLlama backend: %v", err)
+		}
+		judge = &orchestrator.StructuredJudge{LLM: backend}
+		fmt.Printf("judge: CodeLlama (%s) via Ollama\n\n", *model)
+	} else {
+		// Mock judge: returns valid code on the first fix attempt.
+		judge = &orchestrator.MockJudge{
+			Responses: []string{`package main
 
 import "fmt"
 
 func main() {
-	fmt.Println("hello"   // missing closing paren
+	fmt.Println("starting server")
 }
-`
-
-	fixedCode := `package main
-
-import "fmt"
-
-func main() {
-	fmt.Println("hello")
-}
-`
-
-	judge := &orchestrator.MockJudge{
-		Responses: []string{fixedCode},
+`},
+		}
+		fmt.Println("judge: mock (run with -live to use CodeLlama)\n")
 	}
 
 	task := &orchestrator.Task{
-		ID:   "demo-task-1",
+		ID:   "demo",
 		Code: brokenCode,
 	}
 
+	maxRetries := 3
+	if *live {
+		maxRetries = 6 // 7B model may take several iterations to converge
+	}
 	loop := &orchestrator.ExecutionLoop{
 		Judge:      judge,
-		MaxRetries: 3,
+		MaxRetries: maxRetries,
 	}
 
-	ctx := context.Background()
+	fmt.Println("=== Initial code ===")
+	fmt.Println(brokenCode)
+
 	if err := loop.Run(ctx, task); err != nil {
-		log.Fatalf("task %s failed: %v", task.ID, err)
+		fmt.Printf("FAILED after %d attempt(s): %v\n", task.Attempts, err)
+		if len(task.Errors) > 0 {
+			fmt.Println("Last build errors:")
+			for _, e := range task.Errors {
+				fmt.Println(" ", e)
+			}
+		}
+		return
 	}
 
-	fmt.Printf("task %s finished\n", task.ID)
-	fmt.Printf("  status:   %s\n", task.Status)
-	fmt.Printf("  attempts: %d\n", task.Attempts)
-	fmt.Printf("  judge called %d time(s)\n", len(judge.Calls))
-
-	// --- Scenario 2: code that can't be repaired (judge echoes it back) ---
-	fmt.Println()
-
-	unreparableTask := &orchestrator.Task{
-		ID:   "demo-task-2",
-		Code: `this is not valid Go`,
-	}
-
-	silentJudge := &orchestrator.MockJudge{} // no responses → always echoes code back
-
-	loop2 := &orchestrator.ExecutionLoop{Judge: silentJudge, MaxRetries: 2}
-	if err := loop2.Run(ctx, unreparableTask); err != nil {
-		fmt.Printf("task %s correctly failed after %d attempt(s): %v\n",
-			unreparableTask.ID, unreparableTask.Attempts, err)
-	}
+	fmt.Printf("=== Repaired code (status=%s, attempts=%d) ===\n", task.Status, task.Attempts)
+	fmt.Println(task.Code)
 }
