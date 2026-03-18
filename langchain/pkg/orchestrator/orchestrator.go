@@ -17,13 +17,14 @@ import (
 //
 //	approve deps → generate → build+audit → issues? ask judge to fix → repeat
 type ExecutionLoop struct {
-	Generator   CodeGenerator      // produces initial code from a requirement
-	Judge       JudgeAgent         // repairs code given real tool output
-	Deps        DependencyApprover // optional; nil = stdlib-only
-	Tools       []AnalysisTool     // run after each successful build (go vet, gosec, staticcheck)
-	MaxRetries  int                // max judge-and-retry cycles (0 = build once, no repair)
-	MinSeverity Severity           // findings below this level are reported but don't trigger repair (default: LOW)
-	Timeout     time.Duration      // wall-clock cap for the full pipeline; 0 = no limit
+	Generator     CodeGenerator      // produces initial code from a requirement
+	Judge         JudgeAgent         // repairs code given real tool output
+	Deps          DependencyApprover // optional; nil = stdlib-only
+	Preprocessors []Preprocessor     // applied to code before every build attempt
+	Tools         []AnalysisTool     // run after each successful build (go vet, gosec, staticcheck)
+	MaxRetries    int                // max judge-and-retry cycles (0 = build once, no repair)
+	MinSeverity   Severity           // findings below this level are reported but don't trigger repair (default: LOW)
+	Timeout       time.Duration      // wall-clock cap for the full pipeline; 0 = no limit
 }
 
 // GenerateInitialCode populates task.Code from a natural-language requirement.
@@ -79,6 +80,18 @@ func (el *ExecutionLoop) Run(ctx context.Context, task *Task) error {
 	for {
 		task.Status = StatusRunning
 		task.Attempts++
+
+		// Apply preprocessors before each build attempt.  ImportFixer is the
+		// canonical example: it silently adds missing stdlib imports so the LLM
+		// does not waste a repair cycle on a trivially fixable error.
+		for _, p := range el.Preprocessors {
+			processed, ppErr := p.Process(task.Code)
+			if ppErr != nil {
+				log.Printf("preprocessor warning (%T): %v", p, ppErr)
+				continue
+			}
+			task.Code = processed
+		}
 
 		buildErrs, findings, toolErrs, err := buildAndAudit(ctx, task.Code, el.Tools, task.ApprovedDeps)
 		if err != nil {

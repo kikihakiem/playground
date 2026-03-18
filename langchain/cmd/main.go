@@ -115,12 +115,13 @@ func main() {
 	}
 
 	loop := &orchestrator.ExecutionLoop{
-		Generator:  generator,
-		Judge:      judge,
-		Deps:       depsAgent,
-		Tools:      tools,
-		MaxRetries: maxRetries,
-		Timeout:    *timeout,
+		Generator:     generator,
+		Judge:         judge,
+		Deps:          depsAgent,
+		Preprocessors: []orchestrator.Preprocessor{orchestrator.ImportFixer{}},
+		Tools:         tools,
+		MaxRetries:    maxRetries,
+		Timeout:       *timeout,
 	}
 
 	task := &orchestrator.Task{ID: "task-1"}
