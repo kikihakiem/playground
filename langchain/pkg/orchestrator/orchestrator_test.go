@@ -26,6 +26,17 @@ func main() {
 }
 `
 
+// fakeBuild is a mock BuildFunc that checks whether code contains "missing import"
+// (i.e. brokenCode) to decide pass/fail, without spawning real subprocesses.
+func fakeBuild(_ context.Context, code, _ string, _ []orchestrator.AnalysisTool, _ []orchestrator.ApprovedDep) (
+	[]string, []orchestrator.Finding, []error, error,
+) {
+	if strings.Contains(code, "missing import") {
+		return []string{"main.go:4:2: undefined: fmt"}, nil, nil, nil
+	}
+	return nil, nil, nil, nil
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ExecutionLoop.Run (build + fix)
 // ─────────────────────────────────────────────────────────────────────────────

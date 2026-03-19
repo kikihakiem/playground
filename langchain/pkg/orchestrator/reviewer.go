@@ -41,10 +41,10 @@ func (d ReviewDecision) String() string {
 // ── Checkpoint 1: Requirement Review ────────────────────────────────────────
 
 // RequirementReviewer is consulted before any code is generated.
-// It gives a human (or a policy agent) the chance to approve, request revision,
-// or abort a natural-language requirement before any LLM work begins.
+// It receives the full Task so it can display both the requirement and
+// the agent's proposed solution approach (task.Proposal) for human review.
 type RequirementReviewer interface {
-	ReviewRequirement(ctx context.Context, requirement string) (decision ReviewDecision, feedback string, err error)
+	ReviewRequirement(ctx context.Context, task *Task) (decision ReviewDecision, feedback string, err error)
 }
 
 // ── Checkpoints 2 & 3: Loop Review ──────────────────────────────────────────
@@ -71,8 +71,8 @@ type Reviewer interface {
 type TerminalReviewer struct{}
 
 // ReviewRequirement satisfies RequirementReviewer (checkpoint 1).
-func (TerminalReviewer) ReviewRequirement(ctx context.Context, requirement string) (ReviewDecision, string, error) {
-	return (TerminalRequirementReviewer{}).ReviewRequirement(ctx, requirement)
+func (TerminalReviewer) ReviewRequirement(ctx context.Context, task *Task) (ReviewDecision, string, error) {
+	return (TerminalRequirementReviewer{}).ReviewRequirement(ctx, task)
 }
 
 // Review satisfies Reviewer (checkpoints 2 & 3).
@@ -113,9 +113,9 @@ type TerminalRequirementReviewer struct{}
 // boxWidth is the inner width of the review box (between the │ borders).
 const boxWidth = 65
 
-func (TerminalRequirementReviewer) ReviewRequirement(_ context.Context, requirement string) (ReviewDecision, string, error) {
+func (TerminalRequirementReviewer) ReviewRequirement(_ context.Context, task *Task) (ReviewDecision, string, error) {
 	fmt.Fprintln(os.Stderr)
-	printBox(requirement)
+	printBox(task.Requirement, task.Proposal)
 	return readTriStateDecision()
 }
 
@@ -153,23 +153,51 @@ func readTriStateDecision() (ReviewDecision, string, error) {
 	}
 }
 
-// printBox renders the requirement inside a Unicode box, wrapping long text.
-func printBox(requirement string) {
+// printBox renders the requirement (and optional proposal) inside a Unicode box,
+// wrapping long text across multiple lines.
+func printBox(requirement, proposal string) {
 	border := strings.Repeat("═", boxWidth+4)
 	fmt.Fprintf(os.Stderr, "╔%s╗\n", border)
 	fmt.Fprintf(os.Stderr, "║  %-*s  ║\n", boxWidth, "HUMAN REVIEW REQUIRED")
 	fmt.Fprintf(os.Stderr, "╠%s╣\n", border)
 
-	label := "Requirement: "
-	words := strings.Fields(requirement)
-	line := label
+	printWrapped("Requirement", requirement)
+
+	if proposal != "" {
+		fmt.Fprintf(os.Stderr, "╠%s╣\n", border)
+		fmt.Fprintf(os.Stderr, "║  %-*s  ║\n", boxWidth, "PROPOSED APPROACH")
+		fmt.Fprintf(os.Stderr, "╠%s╣\n", border)
+		// Print each line of the proposal, wrapping long lines.
+		for _, pLine := range strings.Split(proposal, "\n") {
+			pLine = strings.TrimSpace(pLine)
+			if pLine == "" {
+				fmt.Fprintf(os.Stderr, "║  %-*s  ║\n", boxWidth, "")
+				continue
+			}
+			printWrapped("", pLine)
+		}
+	}
+
+	fmt.Fprintf(os.Stderr, "╚%s╝\n", border)
+}
+
+// printWrapped prints a labelled or unlabelled line inside the box, word-wrapping as needed.
+func printWrapped(label, text string) {
+	prefix := ""
+	if label != "" {
+		prefix = label + ": "
+	}
+	indent := strings.Repeat(" ", len([]rune(prefix)))
+
+	words := strings.Fields(text)
+	line := prefix
 	for _, w := range words {
 		candidate := line + w
-		if len([]rune(candidate)) > boxWidth && line != label {
+		if len([]rune(candidate)) > boxWidth && line != prefix {
 			fmt.Fprintf(os.Stderr, "║  %-*s  ║\n", boxWidth, line)
-			line = strings.Repeat(" ", len([]rune(label))) + w
+			line = indent + w
 		} else {
-			if line != label {
+			if line != prefix {
 				line += " " + w
 			} else {
 				line += w
@@ -179,23 +207,37 @@ func printBox(requirement string) {
 	if line != "" {
 		fmt.Fprintf(os.Stderr, "║  %-*s  ║\n", boxWidth, line)
 	}
-
-	fmt.Fprintf(os.Stderr, "╚%s╝\n", border)
 }
 
 // ── Mock doubles ────────────────────────────────────────────────────────────
 
 // MockRequirementReviewer is a deterministic test double for RequirementReviewer.
 type MockRequirementReviewer struct {
-	Decision     ReviewDecision
-	Feedback     string
+	Decisions    []ReviewDecision // consumed in order; last one repeats
+	Feedbacks    []string         // consumed in order; last one repeats
 	Err          error
-	Requirements []string // every requirement passed to ReviewRequirement, in order
+	Requirements []string // every requirement seen, in order
+	Tasks        []*Task  // every task passed to ReviewRequirement, in order
 }
 
-func (m *MockRequirementReviewer) ReviewRequirement(_ context.Context, req string) (ReviewDecision, string, error) {
-	m.Requirements = append(m.Requirements, req)
-	return m.Decision, m.Feedback, m.Err
+func (m *MockRequirementReviewer) ReviewRequirement(_ context.Context, task *Task) (ReviewDecision, string, error) {
+	m.Requirements = append(m.Requirements, task.Requirement)
+	m.Tasks = append(m.Tasks, task)
+	d := ReviewAbort
+	if len(m.Decisions) > 0 {
+		d = m.Decisions[0]
+		if len(m.Decisions) > 1 {
+			m.Decisions = m.Decisions[1:]
+		}
+	}
+	fb := ""
+	if len(m.Feedbacks) > 0 {
+		fb = m.Feedbacks[0]
+		if len(m.Feedbacks) > 1 {
+			m.Feedbacks = m.Feedbacks[1:]
+		}
+	}
+	return d, fb, m.Err
 }
 
 // MockReviewer is a deterministic test double for Reviewer.

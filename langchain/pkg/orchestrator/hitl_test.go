@@ -14,11 +14,15 @@ import (
 
 func TestHITL_RequirementReviewer_AbortsBeforeGeneration(t *testing.T) {
 	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
-	rv := &orchestrator.MockRequirementReviewer{Decision: orchestrator.ReviewAbort, Feedback: "requirement violates policy"}
+	rv := &orchestrator.MockRequirementReviewer{
+		Decisions: []orchestrator.ReviewDecision{orchestrator.ReviewAbort},
+		Feedbacks: []string{"requirement violates policy"},
+	}
 	loop := &orchestrator.ExecutionLoop{
 		Generator:           mj,
 		Judge:               mj,
 		RequirementReviewer: rv,
+		BuildFn:             fakeBuild,
 		MaxRetries:          3,
 	}
 	task := &orchestrator.Task{ID: "hitl-req-1"}
@@ -40,11 +44,14 @@ func TestHITL_RequirementReviewer_AbortsBeforeGeneration(t *testing.T) {
 
 func TestHITL_RequirementReviewer_ApprovesAndPipelineContinues(t *testing.T) {
 	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
-	rv := &orchestrator.MockRequirementReviewer{Decision: orchestrator.ReviewApprove}
+	rv := &orchestrator.MockRequirementReviewer{
+		Decisions: []orchestrator.ReviewDecision{orchestrator.ReviewApprove},
+	}
 	loop := &orchestrator.ExecutionLoop{
 		Generator:           mj,
 		Judge:               mj,
 		RequirementReviewer: rv,
+		BuildFn:             fakeBuild,
 		MaxRetries:          1,
 	}
 	task := &orchestrator.Task{ID: "hitl-req-2"}
@@ -66,13 +73,14 @@ func TestHITL_RequirementReviewer_ApprovesAndPipelineContinues(t *testing.T) {
 func TestHITL_RequirementReviewer_ApproveWithFeedbackEnrichesGeneration(t *testing.T) {
 	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
 	rv := &orchestrator.MockRequirementReviewer{
-		Decision: orchestrator.ReviewApprove,
-		Feedback: "make sure to handle edge cases",
+		Decisions: []orchestrator.ReviewDecision{orchestrator.ReviewApprove},
+		Feedbacks: []string{"make sure to handle edge cases"},
 	}
 	loop := &orchestrator.ExecutionLoop{
 		Generator:           mj,
 		Judge:               mj,
 		RequirementReviewer: rv,
+		BuildFn:             fakeBuild,
 		MaxRetries:          1,
 	}
 	task := &orchestrator.Task{ID: "hitl-req-fb"}
@@ -80,11 +88,9 @@ func TestHITL_RequirementReviewer_ApproveWithFeedbackEnrichesGeneration(t *testi
 	if err := loop.RunFromRequirement(context.Background(), task, "build a parser"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Human feedback should be stored on task.
 	if task.HumanContext != "make sure to handle edge cases" {
 		t.Errorf("want HumanContext set, got %q", task.HumanContext)
 	}
-	// The enriched requirement should contain the feedback.
 	if len(mj.GenerateRequirements) == 0 {
 		t.Fatal("generator should be called")
 	}
@@ -95,14 +101,16 @@ func TestHITL_RequirementReviewer_ApproveWithFeedbackEnrichesGeneration(t *testi
 
 func TestHITL_RequirementReviewer_ReviseStoresFeedback(t *testing.T) {
 	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
+	// First call: revise with feedback. Second call: approve.
 	rv := &orchestrator.MockRequirementReviewer{
-		Decision: orchestrator.ReviewRevise,
-		Feedback: "also support subtraction",
+		Decisions: []orchestrator.ReviewDecision{orchestrator.ReviewRevise, orchestrator.ReviewApprove},
+		Feedbacks: []string{"also support subtraction", ""},
 	}
 	loop := &orchestrator.ExecutionLoop{
 		Generator:           mj,
 		Judge:               mj,
 		RequirementReviewer: rv,
+		BuildFn:             fakeBuild,
 		MaxRetries:          1,
 	}
 	task := &orchestrator.Task{ID: "hitl-req-rev"}
@@ -110,10 +118,9 @@ func TestHITL_RequirementReviewer_ReviseStoresFeedback(t *testing.T) {
 	if err := loop.RunFromRequirement(context.Background(), task, "build a calculator"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if task.HumanContext != "also support subtraction" {
+	if !strings.Contains(task.HumanContext, "also support subtraction") {
 		t.Errorf("want HumanContext from revise, got %q", task.HumanContext)
 	}
-	// The enriched requirement should contain the feedback.
 	if !strings.Contains(mj.GenerateRequirements[0], "also support subtraction") {
 		t.Errorf("generator should receive enriched requirement, got %q", mj.GenerateRequirements[0])
 	}
@@ -121,7 +128,12 @@ func TestHITL_RequirementReviewer_ReviseStoresFeedback(t *testing.T) {
 
 func TestHITL_RequirementReviewer_NilSkipsCheckpoint(t *testing.T) {
 	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
-	loop := &orchestrator.ExecutionLoop{Generator: mj, Judge: mj, MaxRetries: 1}
+	loop := &orchestrator.ExecutionLoop{
+		Generator:  mj,
+		Judge:      mj,
+		BuildFn:    fakeBuild,
+		MaxRetries: 1,
+	}
 	task := &orchestrator.Task{ID: "hitl-req-3"}
 
 	if err := loop.RunFromRequirement(context.Background(), task, "anything"); err != nil {
@@ -131,7 +143,12 @@ func TestHITL_RequirementReviewer_NilSkipsCheckpoint(t *testing.T) {
 
 func TestHITL_RequirementStored_OnTask(t *testing.T) {
 	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
-	loop := &orchestrator.ExecutionLoop{Generator: mj, Judge: mj, MaxRetries: 0}
+	loop := &orchestrator.ExecutionLoop{
+		Generator:  mj,
+		Judge:      mj,
+		BuildFn:    fakeBuild,
+		MaxRetries: 0,
+	}
 	task := &orchestrator.Task{ID: "hitl-req-4"}
 
 	_ = loop.RunFromRequirement(context.Background(), task, "serve HTTP on :9090")
@@ -149,6 +166,7 @@ func TestHITL_PostSuccess_ReviewerApproves(t *testing.T) {
 	loop := &orchestrator.ExecutionLoop{
 		Judge:      &orchestrator.MockJudge{},
 		Reviewer:   rv,
+		BuildFn:    fakeBuild,
 		MaxRetries: 0,
 	}
 	task := &orchestrator.Task{ID: "hitl-post-1", Code: validCode}
@@ -169,6 +187,7 @@ func TestHITL_PostSuccess_ReviewerAborts(t *testing.T) {
 	loop := &orchestrator.ExecutionLoop{
 		Judge:      &orchestrator.MockJudge{},
 		Reviewer:   rv,
+		BuildFn:    fakeBuild,
 		MaxRetries: 0,
 	}
 	task := &orchestrator.Task{ID: "hitl-post-2", Code: validCode}
@@ -186,8 +205,6 @@ func TestHITL_PostSuccess_ReviewerAborts(t *testing.T) {
 }
 
 func TestHITL_PostSuccess_ReviewerRevises(t *testing.T) {
-	// First call: human says "revise" → judge fixes → re-enters loop → clean build.
-	// Second call: human approves.
 	rv := &orchestrator.MockReviewer{
 		Decisions: []orchestrator.ReviewDecision{orchestrator.ReviewRevise, orchestrator.ReviewApprove},
 		Feedback:  "add input validation",
@@ -196,6 +213,7 @@ func TestHITL_PostSuccess_ReviewerRevises(t *testing.T) {
 	loop := &orchestrator.ExecutionLoop{
 		Judge:      judge,
 		Reviewer:   rv,
+		BuildFn:    fakeBuild,
 		MaxRetries: 3,
 	}
 	task := &orchestrator.Task{ID: "hitl-post-rev", Code: validCode}
@@ -206,11 +224,9 @@ func TestHITL_PostSuccess_ReviewerRevises(t *testing.T) {
 	if task.Status != orchestrator.StatusSuccess {
 		t.Errorf("want success after revise+approve, got %q", task.Status)
 	}
-	// Reviewer should be called twice: first revise, then approve.
 	if len(rv.Calls) != 2 {
 		t.Errorf("reviewer should be called twice, got %d", len(rv.Calls))
 	}
-	// Judge should receive human feedback.
 	if len(judge.Calls) == 0 {
 		t.Fatal("judge should be called for revision")
 	}
@@ -224,6 +240,7 @@ func TestHITL_PostSuccess_ReviewerSeesCode(t *testing.T) {
 	loop := &orchestrator.ExecutionLoop{
 		Judge:      &orchestrator.MockJudge{},
 		Reviewer:   rv,
+		BuildFn:    fakeBuild,
 		MaxRetries: 0,
 	}
 	task := &orchestrator.Task{ID: "hitl-post-3", Code: validCode}
@@ -241,6 +258,7 @@ func TestHITL_PostSuccess_ReviewerSeesCode(t *testing.T) {
 func TestHITL_PostSuccess_NilReviewerSkipsCheckpoint(t *testing.T) {
 	loop := &orchestrator.ExecutionLoop{
 		Judge:      &orchestrator.MockJudge{},
+		BuildFn:    fakeBuild,
 		MaxRetries: 0,
 	}
 	task := &orchestrator.Task{ID: "hitl-post-4", Code: validCode}
@@ -272,6 +290,7 @@ func TestHITL_FlipFlop_ReviewerCalledOnStuckLoop(t *testing.T) {
 	loop := &orchestrator.ExecutionLoop{
 		Judge:      &buildErrorJudge{code: brokenCode},
 		Reviewer:   rv,
+		BuildFn:    fakeBuild,
 		MaxRetries: 10,
 	}
 	task := &orchestrator.Task{ID: "hitl-flip-1", Code: brokenCode}
@@ -294,6 +313,7 @@ func TestHITL_FlipFlop_ApprovedWithFeedback_ContinuesPipeline(t *testing.T) {
 	loop := &orchestrator.ExecutionLoop{
 		Judge:      judge,
 		Reviewer:   rv,
+		BuildFn:    fakeBuild,
 		MaxRetries: 5,
 	}
 	task := &orchestrator.Task{ID: "hitl-flip-2", Code: brokenCode}
@@ -307,12 +327,12 @@ func TestHITL_FlipFlop_ApprovedWithFeedback_ContinuesPipeline(t *testing.T) {
 }
 
 func TestHITL_FlipFlop_ReviseWithFeedback_ContinuesPipeline(t *testing.T) {
-	// ReviewRevise at flip-flop escape hatch should also inject feedback and continue.
 	rv := &orchestrator.MockReviewer{Decisions: []orchestrator.ReviewDecision{orchestrator.ReviewRevise, orchestrator.ReviewApprove}, Feedback: "try a different approach"}
 	judge := &orchestrator.MockJudge{Responses: []string{validCode}}
 	loop := &orchestrator.ExecutionLoop{
 		Judge:      judge,
 		Reviewer:   rv,
+		BuildFn:    fakeBuild,
 		MaxRetries: 5,
 	}
 	task := &orchestrator.Task{ID: "hitl-flip-rev", Code: brokenCode}
@@ -331,6 +351,7 @@ func TestHITL_FlipFlop_FeedbackInjectedIntoRepairRequest(t *testing.T) {
 	loop := &orchestrator.ExecutionLoop{
 		Judge:      judge,
 		Reviewer:   rv,
+		BuildFn:    fakeBuild,
 		MaxRetries: 5,
 	}
 	task := &orchestrator.Task{ID: "hitl-flip-3", Code: brokenCode}
@@ -354,6 +375,7 @@ func TestHITL_FlipFlop_NotTriggeredOnFirstAttempt(t *testing.T) {
 	loop := &orchestrator.ExecutionLoop{
 		Judge:      &orchestrator.MockJudge{Responses: []string{validCode}},
 		Reviewer:   rv,
+		BuildFn:    fakeBuild,
 		MaxRetries: 3,
 	}
 	task := &orchestrator.Task{ID: "hitl-flip-4", Code: brokenCode}
@@ -361,7 +383,6 @@ func TestHITL_FlipFlop_NotTriggeredOnFirstAttempt(t *testing.T) {
 	if err := loop.Run(context.Background(), task); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// One call expected: the post-success compliance gate.
 	if len(rv.Calls) != 1 {
 		t.Errorf("reviewer should be called exactly once (post-success only), got %d call(s)", len(rv.Calls))
 	}

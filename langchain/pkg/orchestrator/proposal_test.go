@@ -34,10 +34,10 @@ func TestProposal_StoredOnTask(t *testing.T) {
 	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
 	prop := &mockProposer{Proposals: []string{"Use a map for lookups"}}
 	loop := &orchestrator.ExecutionLoop{
-		Generator: mj,
-		Judge:     mj,
-		Proposer:  prop,
-		MaxRetries: 0,
+		Generator:  mj,
+		Judge:      mj,
+		Proposer:   prop,
+		BuildFn: fakeBuild, MaxRetries: 0,
 	}
 	task := &orchestrator.Task{ID: "prop-1"}
 
@@ -53,10 +53,10 @@ func TestProposal_EnrichesGeneration(t *testing.T) {
 	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
 	prop := &mockProposer{Proposals: []string{"Use net/http with gorilla/mux"}}
 	loop := &orchestrator.ExecutionLoop{
-		Generator: mj,
-		Judge:     mj,
-		Proposer:  prop,
-		MaxRetries: 0,
+		Generator:  mj,
+		Judge:      mj,
+		Proposer:   prop,
+		BuildFn: fakeBuild, MaxRetries: 0,
 	}
 	task := &orchestrator.Task{ID: "prop-2"}
 
@@ -78,9 +78,9 @@ func TestProposal_EnrichesGeneration(t *testing.T) {
 func TestProposal_NilProposerSkips(t *testing.T) {
 	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
 	loop := &orchestrator.ExecutionLoop{
-		Generator: mj,
-		Judge:     mj,
-		MaxRetries: 0,
+		Generator:  mj,
+		Judge:      mj,
+		BuildFn: fakeBuild, MaxRetries: 0,
 	}
 	task := &orchestrator.Task{ID: "prop-3"}
 
@@ -92,26 +92,33 @@ func TestProposal_NilProposerSkips(t *testing.T) {
 	}
 }
 
-func TestProposal_ReviewerApproves(t *testing.T) {
+func TestProposal_ReviewerSeesProposal(t *testing.T) {
 	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
-	prop := &mockProposer{Proposals: []string{"Use sync.Map"}}
-	rv := &orchestrator.MockReviewer{
+	prop := &mockProposer{Proposals: []string{"Use sync.Map for concurrency"}}
+	rv := &orchestrator.MockRequirementReviewer{
 		Decisions: []orchestrator.ReviewDecision{orchestrator.ReviewApprove},
-		Feedback:  "also add TTL support",
+		Feedbacks: []string{"also add TTL support"},
 	}
 	loop := &orchestrator.ExecutionLoop{
-		Generator:        mj,
-		Judge:            mj,
-		Proposer:         prop,
-		ProposalReviewer: rv,
-		MaxRetries:       0,
+		Generator:           mj,
+		Judge:               mj,
+		Proposer:            prop,
+		RequirementReviewer: rv,
+		BuildFn: fakeBuild, MaxRetries:          0,
 	}
 	task := &orchestrator.Task{ID: "prop-4"}
 
 	if err := loop.RunFromRequirement(context.Background(), task, "build a cache"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Feedback from proposal approval should enrich generation.
+	// Reviewer should see the proposal on the task.
+	if len(rv.Tasks) == 0 {
+		t.Fatal("reviewer should be called")
+	}
+	if rv.Tasks[0].Proposal != "Use sync.Map for concurrency" {
+		t.Errorf("reviewer should see proposal, got %q", rv.Tasks[0].Proposal)
+	}
+	// Feedback from approval should enrich generation.
 	if !strings.Contains(task.HumanContext, "TTL support") {
 		t.Errorf("approval feedback should be captured in HumanContext, got %q", task.HumanContext)
 	}
@@ -120,16 +127,16 @@ func TestProposal_ReviewerApproves(t *testing.T) {
 func TestProposal_ReviewerAborts(t *testing.T) {
 	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
 	prop := &mockProposer{Proposals: []string{"Use global variables"}}
-	rv := &orchestrator.MockReviewer{
+	rv := &orchestrator.MockRequirementReviewer{
 		Decisions: []orchestrator.ReviewDecision{orchestrator.ReviewAbort},
-		Feedback:  "approach is fundamentally wrong",
+		Feedbacks: []string{"approach is fundamentally wrong"},
 	}
 	loop := &orchestrator.ExecutionLoop{
-		Generator:        mj,
-		Judge:            mj,
-		Proposer:         prop,
-		ProposalReviewer: rv,
-		MaxRetries:       0,
+		Generator:           mj,
+		Judge:               mj,
+		Proposer:            prop,
+		RequirementReviewer: rv,
+		BuildFn: fakeBuild, MaxRetries:          0,
 	}
 	task := &orchestrator.Task{ID: "prop-5"}
 
@@ -142,23 +149,23 @@ func TestProposal_ReviewerAborts(t *testing.T) {
 	}
 	// Generator should NOT be called.
 	if len(mj.GenerateRequirements) != 0 {
-		t.Errorf("generator should not be called after proposal abort, got %d call(s)", len(mj.GenerateRequirements))
+		t.Errorf("generator should not be called after abort, got %d call(s)", len(mj.GenerateRequirements))
 	}
 }
 
-func TestProposal_ReviewerRevises(t *testing.T) {
+func TestProposal_ReviewerRevises_ReGeneratesProposal(t *testing.T) {
 	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
 	prop := &mockProposer{Proposals: []string{"Use raw SQL", "Use database/sql with prepared statements"}}
-	rv := &orchestrator.MockReviewer{
+	rv := &orchestrator.MockRequirementReviewer{
 		Decisions: []orchestrator.ReviewDecision{orchestrator.ReviewRevise, orchestrator.ReviewApprove},
-		Feedback:  "use prepared statements for safety",
+		Feedbacks: []string{"use prepared statements for safety", ""},
 	}
 	loop := &orchestrator.ExecutionLoop{
-		Generator:        mj,
-		Judge:            mj,
-		Proposer:         prop,
-		ProposalReviewer: rv,
-		MaxRetries:       0,
+		Generator:           mj,
+		Judge:               mj,
+		Proposer:            prop,
+		RequirementReviewer: rv,
+		BuildFn: fakeBuild, MaxRetries:          0,
 	}
 	task := &orchestrator.Task{ID: "prop-6"}
 
@@ -197,3 +204,4 @@ func TestProposal_DevAgent_ImplementsSolutionProposer(t *testing.T) {
 		t.Errorf("prompt should contain the requirement, got %q", llm.Prompts[0])
 	}
 }
+

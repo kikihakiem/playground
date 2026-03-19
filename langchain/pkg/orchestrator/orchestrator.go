@@ -17,6 +17,13 @@ import (
 // ExecutionLoop is the core agentic loop:
 //
 //	approve deps → generate → build+audit → issues? ask judge to fix → repeat
+// BuildFunc is the signature for the build+audit step.  The default uses
+// buildAndAudit which compiles in a real sandbox.  Tests can inject a mock
+// to avoid spawning go build / go vet / gosec / staticcheck subprocesses.
+type BuildFunc func(ctx context.Context, code, testCode string, tools []AnalysisTool, deps []ApprovedDep) (
+	buildErrors []string, findings []Finding, toolErrs []error, err error,
+)
+
 type ExecutionLoop struct {
 	Generator           CodeGenerator        // produces initial code from a requirement
 	Judge               JudgeAgent           // repairs code given real tool output
@@ -28,10 +35,20 @@ type ExecutionLoop struct {
 	MinSeverity         Severity             // findings below this level are reported but don't trigger repair (default: LOW)
 	Timeout             time.Duration        // wall-clock cap for the full pipeline; 0 = no limit
 	Logger              io.Writer            // progress log destination; nil = silent
-	RequirementReviewer RequirementReviewer  // checkpoint 1: human validates the requirement before generation
+	RequirementReviewer RequirementReviewer  // checkpoint 1: human reviews requirement + proposed approach
 	Proposer            SolutionProposer     // optional; proposes solution approach before code generation
-	ProposalReviewer    Reviewer             // optional; human reviews the proposed approach
 	Reviewer            Reviewer             // checkpoints 2 & 3: escape hatch + post-success compliance gate
+	BuildFn             BuildFunc            // optional; nil = real buildAndAudit (spawns subprocesses)
+}
+
+// build calls BuildFn if set, otherwise the real buildAndAudit.
+func (el *ExecutionLoop) build(ctx context.Context, code, testCode string, tools []AnalysisTool, deps []ApprovedDep) (
+	[]string, []Finding, []error, error,
+) {
+	if el.BuildFn != nil {
+		return el.BuildFn(ctx, code, testCode, tools, deps)
+	}
+	return buildAndAudit(ctx, code, testCode, tools, deps)
 }
 
 // logf writes a formatted line to the logger when one is configured.
@@ -82,26 +99,64 @@ func (el *ExecutionLoop) RunFromRequirement(ctx context.Context, task *Task, req
 
 	task.Requirement = requirement
 
-	// ── Checkpoint 1: Requirement validation ────────────────────────────────
-	if el.RequirementReviewer != nil {
-		el.logPhase("review", "→ awaiting requirement sign-off...")
-		decision, feedback, revErr := el.RequirementReviewer.ReviewRequirement(ctx, requirement)
-		if revErr != nil {
-			return fmt.Errorf("requirement reviewer error: %w", revErr)
+	// ── Solution proposal (before human review) ─────────────────────────────
+	// Generate the approach first so the human reviewer sees both the
+	// requirement AND the proposed solution together.
+	if el.Proposer != nil {
+		el.logPhase("proposal", "requesting solution approach...")
+		proposal, propErr := el.Proposer.ProposeSolution(ctx, requirement)
+		if propErr != nil {
+			return fmt.Errorf("proposal generation: %w", propErr)
 		}
-		switch decision {
-		case ReviewAbort:
-			el.logPhase("review", fmt.Sprintf("✗ aborted: %s", feedback))
-			return fmt.Errorf("requirement aborted by human reviewer: %s", feedback)
-		case ReviewRevise:
-			// Human wants to refine — store feedback and continue.
-			task.HumanContext = feedback
-			el.logPhase("review", fmt.Sprintf("↻ revision requested — feedback captured"))
-		case ReviewApprove:
-			if feedback != "" {
-				task.HumanContext = feedback
+		task.Proposal = proposal
+		el.logPhase("proposal", "✓ approach drafted")
+	}
+
+	// ── Checkpoint 1: Requirement + proposal review ─────────────────────────
+	// The reviewer sees both task.Requirement and task.Proposal together.
+	// On Revise: re-generate proposal with feedback, then re-present for review.
+	// On Approve: capture feedback and continue to code generation.
+	// On Abort: halt immediately.
+	if el.RequirementReviewer != nil {
+		for {
+			el.logPhase("review", "→ awaiting human review...")
+			decision, feedback, revErr := el.RequirementReviewer.ReviewRequirement(ctx, task)
+			if revErr != nil {
+				return fmt.Errorf("requirement reviewer error: %w", revErr)
 			}
-			el.logPhase("review", "✓ requirement approved")
+			switch decision {
+			case ReviewAbort:
+				el.logPhase("review", fmt.Sprintf("✗ aborted: %s", feedback))
+				return fmt.Errorf("requirement aborted by human reviewer: %s", feedback)
+			case ReviewRevise:
+				// Re-generate proposal with human feedback and re-present.
+				if task.HumanContext == "" {
+					task.HumanContext = feedback
+				} else {
+					task.HumanContext += "\n" + feedback
+				}
+				if el.Proposer != nil {
+					el.logPhase("proposal", "↻ revising approach with feedback...")
+					revised, rErr := el.Proposer.ProposeSolution(ctx, requirement+"\n\nHUMAN FEEDBACK:\n"+task.HumanContext)
+					if rErr != nil {
+						return fmt.Errorf("proposal revision: %w", rErr)
+					}
+					task.Proposal = revised
+					el.logPhase("proposal", "✓ approach revised")
+				}
+				el.logPhase("review", "↻ revision requested — re-presenting for review")
+				continue // re-present for review
+			case ReviewApprove:
+				if feedback != "" {
+					if task.HumanContext == "" {
+						task.HumanContext = feedback
+					} else {
+						task.HumanContext += "\n" + feedback
+					}
+				}
+				el.logPhase("review", "✓ approved")
+			}
+			break
 		}
 	}
 
@@ -120,57 +175,6 @@ func (el *ExecutionLoop) RunFromRequirement(ctx context.Context, task *Task, req
 			el.logPhase("deps", fmt.Sprintf("✓ allowlist: %s (guard enforces at build-time)", strings.Join(names, ", ")))
 		} else {
 			el.logPhase("deps", "none (stdlib only)")
-		}
-	}
-
-	// ── Solution proposal ──────────────────────────────────────────────────
-	if el.Proposer != nil {
-		el.logPhase("proposal", "requesting solution approach...")
-		proposal, propErr := el.Proposer.ProposeSolution(ctx, requirement)
-		if propErr != nil {
-			return fmt.Errorf("proposal generation: %w", propErr)
-		}
-		task.Proposal = proposal
-		el.logPhase("proposal", "✓ approach drafted")
-
-		// Let human review the proposal (approve / revise / abort).
-		if el.ProposalReviewer != nil {
-			for {
-				el.logPhase("proposal", "→ awaiting human review of approach...")
-				decision, feedback, revErr := el.ProposalReviewer.Review(ctx, task)
-				if revErr != nil {
-					return fmt.Errorf("proposal reviewer error: %w", revErr)
-				}
-				switch decision {
-				case ReviewAbort:
-					el.logPhase("proposal", fmt.Sprintf("✗ aborted: %s", feedback))
-					return fmt.Errorf("proposal aborted by human reviewer: %s", feedback)
-				case ReviewRevise:
-					// Re-generate proposal with human feedback.
-					el.logPhase("proposal", "↻ revising approach with feedback...")
-					revised, rErr := el.Proposer.ProposeSolution(ctx, requirement+"\n\nHUMAN FEEDBACK:\n"+feedback)
-					if rErr != nil {
-						return fmt.Errorf("proposal revision: %w", rErr)
-					}
-					task.Proposal = revised
-					if task.HumanContext == "" {
-						task.HumanContext = feedback
-					} else {
-						task.HumanContext += "\n" + feedback
-					}
-					continue // re-present for review
-				case ReviewApprove:
-					if feedback != "" {
-						if task.HumanContext == "" {
-							task.HumanContext = feedback
-						} else {
-							task.HumanContext += "\n" + feedback
-						}
-					}
-					el.logPhase("proposal", "✓ approach approved")
-				}
-				break
-			}
 		}
 	}
 
@@ -236,7 +240,7 @@ func (el *ExecutionLoop) Run(ctx context.Context, task *Task) error {
 		}
 
 		// ── Build + audit ──────────────────────────────────────────────────
-		buildErrs, findings, toolErrs, err := buildAndAudit(ctx, task.Code, task.TestCode, el.Tools, task.ApprovedDeps)
+		buildErrs, findings, toolErrs, err := el.build(ctx, task.Code, task.TestCode, el.Tools, task.ApprovedDeps)
 		if err != nil {
 			task.Status = StatusFailed
 			if errors.Is(err, context.DeadlineExceeded) {

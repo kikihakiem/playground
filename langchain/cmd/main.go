@@ -135,7 +135,6 @@ func main() {
 	if *review {
 		tr := orchestrator.TerminalReviewer{}
 		loop.RequirementReviewer = tr
-		loop.ProposalReviewer = tr
 		loop.Reviewer = tr
 	}
 
