@@ -21,6 +21,7 @@ type ExecutionLoop struct {
 	Generator           CodeGenerator        // produces initial code from a requirement
 	Judge               JudgeAgent           // repairs code given real tool output
 	Deps                DependencyApprover   // optional; nil = stdlib-only
+	TestGenerator       TestGenerator        // optional; generates main_test.go (the oracle)
 	Preprocessors       []Preprocessor       // applied to code before every build attempt
 	Tools               []AnalysisTool       // run after each successful build (go vet, gosec, staticcheck)
 	MaxRetries          int                  // max judge-and-retry cycles (0 = build once, no repair)
@@ -117,6 +118,18 @@ func (el *ExecutionLoop) RunFromRequirement(ctx context.Context, task *Task, req
 	}
 	el.logPhase("generate", fmt.Sprintf("✓ received %d line(s)", strings.Count(task.Code, "\n")+1))
 
+	// ── Test oracle generation ──────────────────────────────────────────────
+	if el.TestGenerator != nil {
+		el.logPhase("tests", "generating test oracle...")
+		testCode, tErr := el.TestGenerator.GenerateTests(ctx, requirement, task.Code)
+		if tErr != nil {
+			el.logPhase("tests", fmt.Sprintf("⚠ test generation failed: %v (continuing without oracle)", tErr))
+		} else {
+			task.TestCode = testCode
+			el.logPhase("tests", fmt.Sprintf("✓ received %d line(s)", strings.Count(testCode, "\n")+1))
+		}
+	}
+
 	return el.Run(ctx, task)
 }
 
@@ -152,7 +165,7 @@ func (el *ExecutionLoop) Run(ctx context.Context, task *Task) error {
 		}
 
 		// ── Build + audit ──────────────────────────────────────────────────
-		buildErrs, findings, toolErrs, err := buildAndAudit(ctx, task.Code, el.Tools, task.ApprovedDeps)
+		buildErrs, findings, toolErrs, err := buildAndAudit(ctx, task.Code, task.TestCode, el.Tools, task.ApprovedDeps)
 		if err != nil {
 			task.Status = StatusFailed
 			if errors.Is(err, context.DeadlineExceeded) {
@@ -196,6 +209,7 @@ func (el *ExecutionLoop) Run(ctx context.Context, task *Task) error {
 		actionable := el.filterFindings(findings)
 		req := RepairRequest{
 			Code:         task.Code,
+			TestCode:     task.TestCode,
 			BuildErrors:  buildErrs,
 			Findings:     actionable,
 			ApprovedDeps: task.ApprovedDeps,
@@ -380,7 +394,7 @@ func attemptFindingsEqual(a, b []Finding) bool {
 // When deps are non-empty, go mod tidy is run before compilation so the sandbox
 // go.mod includes the approved external packages; tidy failures are surfaced as
 // build errors (not fatal errors) so the judge can diagnose wrong import paths.
-func buildAndAudit(ctx context.Context, code string, tools []AnalysisTool, deps []ApprovedDep) (
+func buildAndAudit(ctx context.Context, code, testCode string, tools []AnalysisTool, deps []ApprovedDep) (
 	buildErrors []string, findings []Finding, toolErrs []error, err error,
 ) {
 	dir, err := os.MkdirTemp("", "orchestrator-*")
@@ -394,6 +408,11 @@ func buildAndAudit(ctx context.Context, code string, tools []AnalysisTool, deps 
 	}
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(code), 0o600); err != nil {
 		return nil, nil, nil, fmt.Errorf("write main.go: %w", err)
+	}
+	if testCode != "" {
+		if err := os.WriteFile(filepath.Join(dir, "main_test.go"), []byte(testCode), 0o600); err != nil {
+			return nil, nil, nil, fmt.Errorf("write main_test.go: %w", err)
+		}
 	}
 
 	// ── 0. Dependency guard (pre-build) ──────────────────────────────────────
@@ -443,8 +462,31 @@ func buildAndAudit(ctx context.Context, code string, tools []AnalysisTool, deps 
 		return strings.Split(raw, "\n"), nil, nil, nil
 	}
 
-	// ── 3. Audit tools ───────────────────────────────────────────────────────
-	// Tools only run on code that compiles, so their output is always meaningful.
+	// ── 3. Run tests (oracle) ────────────────────────────────────────────────
+	// Tests define expected behaviour. If they fail, the assertion output is
+	// returned as build errors so the judge sees "expected 14, got 0" rather
+	// than a clean pass on a stub implementation.
+	if testCode != "" {
+		var testOut bytes.Buffer
+		testCmd := exec.CommandContext(ctx, "go", "test", "-v", "-count=1", "./...")
+		testCmd.Dir = dir
+		testCmd.Stdout = &testOut
+		testCmd.Stderr = &testOut
+		if testErr := testCmd.Run(); testErr != nil {
+			if ctx.Err() != nil {
+				return nil, nil, nil, ctx.Err()
+			}
+			raw := strings.TrimSpace(testOut.String())
+			if raw == "" {
+				raw = testErr.Error()
+			}
+			return strings.Split(raw, "\n"), nil, nil, nil
+		}
+	}
+
+	// ── 4. Audit tools ───────────────────────────────────────────────────────
+	// Tools only run on code that compiles and passes tests, so their output
+	// is always meaningful.
 	ff, errs := RunTools(ctx, tools, dir)
 	return nil, ff, errs, nil
 }

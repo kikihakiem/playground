@@ -54,6 +54,7 @@ func main() {
 	var (
 		judge     orchestrator.JudgeAgent
 		generator orchestrator.CodeGenerator
+		testGen   orchestrator.TestGenerator     // nil = no oracle tests
 		depsAgent orchestrator.DependencyApprover // nil = stdlib-only
 	)
 
@@ -70,7 +71,9 @@ func main() {
 		//   DevAgent           — junior dev, writes code fast
 		//   AuditorJudge       — senior auditor, fixes compiler + tool issues
 		//   LLMDependencyAgent — selects which allowlisted packages to use
-		generator = &orchestrator.DevAgent{LLM: backend}
+		devAgent := &orchestrator.DevAgent{LLM: backend}
+		generator = devAgent
+		testGen = devAgent // DevAgent implements both CodeGenerator and TestGenerator
 		judge = &orchestrator.AuditorJudge{LLM: backend}
 		depsAgent = &orchestrator.AllowlistApprover{
 			Allowlist: standardAllowlist,
@@ -78,8 +81,9 @@ func main() {
 		maxRetries = 6
 		fmt.Printf("backend  : CodeLlama (%s) via Ollama\n", *model)
 		fmt.Printf("generator: DevAgent          (junior dev persona)\n")
+		fmt.Printf("tests    : DevAgent          (oracle test writer)\n")
 		fmt.Printf("judge    : AuditorJudge       (senior security auditor persona)\n")
-		fmt.Printf("deps     : LLMDependencyAgent (%d packages in allowlist)\n\n", len(standardAllowlist))
+		fmt.Printf("deps     : AllowlistApprover  (%d packages in allowlist)\n\n", len(standardAllowlist))
 	} else {
 		// Mock path: clean server code that passes all audit tools.
 		mj := &orchestrator.MockJudge{
@@ -115,21 +119,22 @@ func main() {
 		fmt.Println()
 	}
 
-	var reqReviewer orchestrator.RequirementReviewer
-	if *review {
-		reqReviewer = orchestrator.TerminalRequirementReviewer{}
+	loop := &orchestrator.ExecutionLoop{
+		Generator:     generator,
+		Judge:         judge,
+		Deps:          depsAgent,
+		TestGenerator: testGen,
+		Preprocessors: []orchestrator.Preprocessor{orchestrator.ImportFixer{}},
+		Tools:         tools,
+		MaxRetries:    maxRetries,
+		Timeout:       *timeout,
+		Logger:        os.Stderr,
 	}
 
-	loop := &orchestrator.ExecutionLoop{
-		Generator:           generator,
-		Judge:               judge,
-		Deps:                depsAgent,
-		Preprocessors:       []orchestrator.Preprocessor{orchestrator.ImportFixer{}},
-		Tools:               tools,
-		MaxRetries:          maxRetries,
-		Timeout:             *timeout,
-		Logger:              os.Stderr,
-		RequirementReviewer: reqReviewer,
+	if *review {
+		tr := orchestrator.TerminalReviewer{}
+		loop.RequirementReviewer = tr
+		loop.Reviewer = tr
 	}
 
 	task := &orchestrator.Task{ID: "task-1"}

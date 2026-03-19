@@ -29,6 +29,7 @@ type Task struct {
 	Status       Status
 	Requirement  string        // original natural-language requirement (set by RunFromRequirement)
 	Code         string        // current Go source (updated after each judge repair)
+	TestCode     string        // test file (the oracle); generated once, not mutated by judge
 	Errors       []string      // build errors from the most recent attempt
 	Findings     []Finding     // tool findings from the most recent attempt
 	Attempts     int           // total build+audit attempts made

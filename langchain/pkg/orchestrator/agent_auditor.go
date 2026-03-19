@@ -30,6 +30,7 @@ func (a *AuditorJudge) Fix(ctx context.Context, req RepairRequest) (string, erro
 	prompt := BuildCorrectionPrompt(req.Code, req.BuildErrors, req.Findings, req.History)
 	prompt.HumanFeedback = req.HumanFeedback
 	prompt.ApprovedDeps = req.ApprovedDeps
+	prompt.TestCode = req.TestCode
 	fixed, err := a.LLM.Complete(ctx, auditorSystemPrompt, prompt.Format())
 	if err != nil {
 		return "", fmt.Errorf("auditor judge: %w", err)

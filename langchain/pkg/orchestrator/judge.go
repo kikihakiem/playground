@@ -11,6 +11,7 @@ import (
 // the interface signature.
 type RepairRequest struct {
 	Code          string        // current Go source under repair
+	TestCode      string        // test file content (the oracle); empty if no TestGenerator
 	BuildErrors   []string      // compiler errors; empty when compilation succeeded
 	Findings      []Finding     // diagnostics from real tools (go vet, gosec, staticcheck)
 	History       []Attempt     // all prior failed attempts, oldest first
@@ -34,6 +35,14 @@ type JudgeAgent interface {
 // requirement. It is the "plan" phase; JudgeAgent is the "repair" phase.
 type CodeGenerator interface {
 	GenerateInitialCode(ctx context.Context, requirement string) (string, error)
+}
+
+// TestGenerator produces a _test.go file that encodes the expected behaviour
+// for a given requirement.  The generated tests act as the "oracle" — they
+// replace the compiler as the criterion for success, preventing stub functions
+// like `return 0` from passing the pipeline.
+type TestGenerator interface {
+	GenerateTests(ctx context.Context, requirement, code string) (testCode string, err error)
 }
 
 // ── MockJudge ────────────────────────────────────────────────────────────────

@@ -40,12 +40,75 @@ type Reviewer interface {
 
 // ── Terminal implementations ──────────────────────────────────────────────────
 
-// TerminalRequirementReviewer pauses the pipeline and asks the operator to
-// approve or reject the requirement interactively on the terminal.
+// TerminalReviewer implements both RequirementReviewer and Reviewer via a
+// single struct, so cmd/main.go can wire one value into both ExecutionLoop fields.
 //
-// Approve: type "y" or "yes" (case-insensitive).
-// Reject:  anything else — the operator is then prompted for a one-line reason
-//          which is returned as feedback and surfaces as the pipeline error.
+// - RequirementReviewer: checkpoint 1 (pre-flight approval box)
+// - Reviewer: checkpoint 2 (flip-flop escape hatch) + checkpoint 3 (post-success gate)
+type TerminalReviewer struct{}
+
+// ReviewRequirement satisfies RequirementReviewer (checkpoint 1).
+func (TerminalReviewer) ReviewRequirement(ctx context.Context, requirement string) (bool, string, error) {
+	return (TerminalRequirementReviewer{}).ReviewRequirement(ctx, requirement)
+}
+
+// Review satisfies Reviewer (checkpoints 2 & 3).
+// At the escape hatch it shows the stuck errors; at the compliance gate it
+// shows the final code.  Either way, the operator can approve (with an optional
+// hint) or reject.
+func (TerminalReviewer) Review(_ context.Context, task *Task) (bool, string, error) {
+	fmt.Fprintf(os.Stderr, "\n╔══ FEEDBACK REQUIRED (Attempt %d) %s╗\n",
+		task.Attempts, strings.Repeat("═", max(0, boxWidth-27-len(fmt.Sprintf("%d", task.Attempts)))))
+
+	if isFlipFlop(task.History) {
+		fmt.Fprintln(os.Stderr, "║  ⚠  The agent is stuck in a loop with the same error.")
+	}
+
+	if task.Status == StatusPendingReview && len(task.Errors) == 0 && len(task.Findings) == 0 {
+		// Post-success compliance gate — show the code summary.
+		lines := strings.Count(task.Code, "\n") + 1
+		fmt.Fprintf(os.Stderr, "║  Code compiles and passes all audits (%d lines).\n", lines)
+	} else {
+		// Escape-hatch — show what's wrong.
+		if len(task.Errors) > 0 {
+			fmt.Fprintln(os.Stderr, "║  Current errors:")
+			for _, e := range task.Errors {
+				fmt.Fprintf(os.Stderr, "║    %s\n", e)
+			}
+		}
+		if len(task.Findings) > 0 {
+			fmt.Fprintln(os.Stderr, "║  Current findings:")
+			for _, f := range task.Findings {
+				fmt.Fprintf(os.Stderr, "║    %s\n", f)
+			}
+		}
+	}
+
+	fmt.Fprintf(os.Stderr, "╚%s╝\n", strings.Repeat("═", boxWidth+4))
+	fmt.Fprint(os.Stderr, "Approve? [y/N]: ")
+
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	answer := strings.TrimSpace(scanner.Text())
+
+	if strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes") {
+		fmt.Fprint(os.Stderr, "Optional hint for the agent (Enter to skip): ")
+		scanner.Scan()
+		hint := strings.TrimSpace(scanner.Text())
+		return true, hint, nil
+	}
+
+	fmt.Fprint(os.Stderr, "Reason for rejection (one line): ")
+	scanner.Scan()
+	reason := strings.TrimSpace(scanner.Text())
+	if reason == "" {
+		reason = "rejected by operator"
+	}
+	return false, reason, nil
+}
+
+// TerminalRequirementReviewer is the standalone requirement-only reviewer.
+// Prefer TerminalReviewer which implements both interfaces.
 type TerminalRequirementReviewer struct{}
 
 // boxWidth is the inner width of the review box (between the │ borders).

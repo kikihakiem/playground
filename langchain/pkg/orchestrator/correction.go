@@ -26,6 +26,7 @@ type CorrectionPrompt struct {
 	History         []Attempt        // all prior failed attempts, for anti-flip-flop context
 	HumanFeedback   string           // optional guidance from a human reviewer injected at the escape hatch
 	ApprovedDeps    []ApprovedDep    // allowlisted external packages; injected by AuditorJudge only
+	TestCode        string           // test file the implementation must satisfy (the oracle)
 }
 
 // maxHistoryInPrompt caps how many past attempts we include.
@@ -113,6 +114,13 @@ func (cp CorrectionPrompt) Format() string {
 				b.WriteString("  " + f.String() + "\n")
 			}
 		}
+		b.WriteString("\n")
+	}
+
+	// ── Test oracle (the expected behaviour the code MUST satisfy) ──────────
+	if cp.TestCode != "" {
+		b.WriteString("=== TEST FILE (main_test.go — your code MUST pass these tests) ===\n")
+		b.WriteString(renderCodeCompact(cp.TestCode))
 		b.WriteString("\n")
 	}
 
