@@ -28,6 +28,8 @@ type Task struct {
 	ID           string
 	Status       Status
 	Requirement  string        // original natural-language requirement (set by RunFromRequirement)
+	Proposal     string        // agent's proposed solution approach (set by Proposer, reviewed by human)
+	HumanContext string        // human feedback from checkpoint 1 / proposal review — enriches generation
 	Code         string        // current Go source (updated after each judge repair)
 	TestCode     string        // test file (the oracle); generated once, not mutated by judge
 	Errors       []string      // build errors from the most recent attempt

@@ -8,55 +8,75 @@ import (
 	"strings"
 )
 
-// ── Checkpoint 1: Requirement Review ──────────────────────────────────────────
+// ── ReviewDecision ──────────────────────────────────────────────────────────
 
-// RequirementReviewer is consulted before any code is generated.
-// It gives a human (or a policy agent) the chance to reject or redirect a
-// natural-language requirement before any LLM work begins.
-//
-// Returning approved=false stops the pipeline immediately; feedback is surfaced
-// as the error message so the caller knows why.
-type RequirementReviewer interface {
-	ReviewRequirement(ctx context.Context, requirement string) (approved bool, feedback string, err error)
+// ReviewDecision is the outcome of a human review checkpoint.
+type ReviewDecision int
+
+const (
+	// ReviewApprove proceeds with the pipeline. Optional feedback is treated
+	// as enrichment (e.g. extra context for code generation).
+	ReviewApprove ReviewDecision = iota
+
+	// ReviewRevise asks the agent to incorporate the feedback and try again.
+	// The pipeline continues — it does NOT halt.
+	ReviewRevise
+
+	// ReviewAbort halts the pipeline immediately.
+	ReviewAbort
+)
+
+func (d ReviewDecision) String() string {
+	switch d {
+	case ReviewApprove:
+		return "approve"
+	case ReviewRevise:
+		return "revise"
+	case ReviewAbort:
+		return "abort"
+	}
+	return "unknown"
 }
 
-// ── Checkpoints 2 & 3: Loop Review ────────────────────────────────────────────
+// ── Checkpoint 1: Requirement Review ────────────────────────────────────────
+
+// RequirementReviewer is consulted before any code is generated.
+// It gives a human (or a policy agent) the chance to approve, request revision,
+// or abort a natural-language requirement before any LLM work begins.
+type RequirementReviewer interface {
+	ReviewRequirement(ctx context.Context, requirement string) (decision ReviewDecision, feedback string, err error)
+}
+
+// ── Checkpoints 2 & 3: Loop Review ──────────────────────────────────────────
 
 // Reviewer is called at two later checkpoints:
 //
 //  1. Escape hatch  — when the agentic loop detects a flip-flop (the same
 //     errors repeating on consecutive attempts), it pauses and asks for human
-//     guidance rather than exhausting all retries on a stuck pattern.
-//     Returning approved=true lets the loop continue; any non-empty feedback
-//     string is injected into the next RepairRequest so the judge has a human
-//     hint.  Returning approved=false halts immediately.
+//     guidance.  ReviewApprove/ReviewRevise inject feedback and continue;
+//     ReviewAbort halts.
 //
 //  2. Compliance gate — after automated checks pass (build + audit clean), a
-//     senior engineer can inspect task.Code and task.History before the result
-//     is promoted to StatusSuccess.
+//     senior engineer can inspect task.Code and task.History.
+//     ReviewApprove finalises success; ReviewRevise sends the code back
+//     through the judge with human feedback; ReviewAbort halts.
 type Reviewer interface {
-	Review(ctx context.Context, task *Task) (approved bool, feedback string, err error)
+	Review(ctx context.Context, task *Task) (decision ReviewDecision, feedback string, err error)
 }
 
-// ── Terminal implementations ──────────────────────────────────────────────────
+// ── Terminal implementations ────────────────────────────────────────────────
 
 // TerminalReviewer implements both RequirementReviewer and Reviewer via a
 // single struct, so cmd/main.go can wire one value into both ExecutionLoop fields.
-//
-// - RequirementReviewer: checkpoint 1 (pre-flight approval box)
-// - Reviewer: checkpoint 2 (flip-flop escape hatch) + checkpoint 3 (post-success gate)
 type TerminalReviewer struct{}
 
 // ReviewRequirement satisfies RequirementReviewer (checkpoint 1).
-func (TerminalReviewer) ReviewRequirement(ctx context.Context, requirement string) (bool, string, error) {
+func (TerminalReviewer) ReviewRequirement(ctx context.Context, requirement string) (ReviewDecision, string, error) {
 	return (TerminalRequirementReviewer{}).ReviewRequirement(ctx, requirement)
 }
 
 // Review satisfies Reviewer (checkpoints 2 & 3).
-// At the escape hatch it shows the stuck errors; at the compliance gate it
-// shows the final code.  Either way, the operator can approve (with an optional
-// hint) or reject.
-func (TerminalReviewer) Review(_ context.Context, task *Task) (bool, string, error) {
+func (TerminalReviewer) Review(_ context.Context, task *Task) (ReviewDecision, string, error) {
 	fmt.Fprintf(os.Stderr, "\n╔══ FEEDBACK REQUIRED (Attempt %d) %s╗\n",
 		task.Attempts, strings.Repeat("═", max(0, boxWidth-27-len(fmt.Sprintf("%d", task.Attempts)))))
 
@@ -65,11 +85,9 @@ func (TerminalReviewer) Review(_ context.Context, task *Task) (bool, string, err
 	}
 
 	if task.Status == StatusPendingReview && len(task.Errors) == 0 && len(task.Findings) == 0 {
-		// Post-success compliance gate — show the code summary.
 		lines := strings.Count(task.Code, "\n") + 1
 		fmt.Fprintf(os.Stderr, "║  Code compiles and passes all audits (%d lines).\n", lines)
 	} else {
-		// Escape-hatch — show what's wrong.
 		if len(task.Errors) > 0 {
 			fmt.Fprintln(os.Stderr, "║  Current errors:")
 			for _, e := range task.Errors {
@@ -85,26 +103,7 @@ func (TerminalReviewer) Review(_ context.Context, task *Task) (bool, string, err
 	}
 
 	fmt.Fprintf(os.Stderr, "╚%s╝\n", strings.Repeat("═", boxWidth+4))
-	fmt.Fprint(os.Stderr, "Approve? [y/N]: ")
-
-	scanner := bufio.NewScanner(os.Stdin)
-	scanner.Scan()
-	answer := strings.TrimSpace(scanner.Text())
-
-	if strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes") {
-		fmt.Fprint(os.Stderr, "Optional hint for the agent (Enter to skip): ")
-		scanner.Scan()
-		hint := strings.TrimSpace(scanner.Text())
-		return true, hint, nil
-	}
-
-	fmt.Fprint(os.Stderr, "Reason for rejection (one line): ")
-	scanner.Scan()
-	reason := strings.TrimSpace(scanner.Text())
-	if reason == "" {
-		reason = "rejected by operator"
-	}
-	return false, reason, nil
+	return readTriStateDecision()
 }
 
 // TerminalRequirementReviewer is the standalone requirement-only reviewer.
@@ -114,30 +113,47 @@ type TerminalRequirementReviewer struct{}
 // boxWidth is the inner width of the review box (between the │ borders).
 const boxWidth = 65
 
-func (TerminalRequirementReviewer) ReviewRequirement(_ context.Context, requirement string) (bool, string, error) {
+func (TerminalRequirementReviewer) ReviewRequirement(_ context.Context, requirement string) (ReviewDecision, string, error) {
 	fmt.Fprintln(os.Stderr)
 	printBox(requirement)
-	fmt.Fprint(os.Stderr, "Approve this requirement? [y/N]: ")
+	return readTriStateDecision()
+}
 
+// readTriStateDecision prompts the operator for a tri-state decision.
+func readTriStateDecision() (ReviewDecision, string, error) {
+	fmt.Fprint(os.Stderr, "[a]pprove / [r]evise / [x] abort: ")
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Scan()
-	answer := strings.TrimSpace(scanner.Text())
+	answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
 
-	if strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes") {
-		return true, "", nil
-	}
+	switch {
+	case answer == "a" || answer == "approve":
+		fmt.Fprint(os.Stderr, "Optional feedback (Enter to skip): ")
+		scanner.Scan()
+		fb := strings.TrimSpace(scanner.Text())
+		return ReviewApprove, fb, nil
 
-	fmt.Fprint(os.Stderr, "Reason for rejection (one line): ")
-	scanner.Scan()
-	reason := strings.TrimSpace(scanner.Text())
-	if reason == "" {
-		reason = "rejected by operator"
+	case answer == "r" || answer == "revise":
+		fmt.Fprint(os.Stderr, "Feedback for the agent: ")
+		scanner.Scan()
+		fb := strings.TrimSpace(scanner.Text())
+		if fb == "" {
+			fb = "please revise"
+		}
+		return ReviewRevise, fb, nil
+
+	default: // "x", "abort", empty, anything else
+		fmt.Fprint(os.Stderr, "Reason (Enter for default): ")
+		scanner.Scan()
+		reason := strings.TrimSpace(scanner.Text())
+		if reason == "" {
+			reason = "aborted by operator"
+		}
+		return ReviewAbort, reason, nil
 	}
-	return false, reason, nil
 }
 
 // printBox renders the requirement inside a Unicode box, wrapping long text.
-// Layout: ║  <content padded to boxWidth>  ║  → total line width = boxWidth+6
 func printBox(requirement string) {
 	border := strings.Repeat("═", boxWidth+4)
 	fmt.Fprintf(os.Stderr, "╔%s╗\n", border)
@@ -167,30 +183,37 @@ func printBox(requirement string) {
 	fmt.Fprintf(os.Stderr, "╚%s╝\n", border)
 }
 
-// ── Mock doubles ──────────────────────────────────────────────────────────────
+// ── Mock doubles ────────────────────────────────────────────────────────────
 
 // MockRequirementReviewer is a deterministic test double for RequirementReviewer.
 type MockRequirementReviewer struct {
-	Approved     bool
+	Decision     ReviewDecision
 	Feedback     string
 	Err          error
 	Requirements []string // every requirement passed to ReviewRequirement, in order
 }
 
-func (m *MockRequirementReviewer) ReviewRequirement(_ context.Context, req string) (bool, string, error) {
+func (m *MockRequirementReviewer) ReviewRequirement(_ context.Context, req string) (ReviewDecision, string, error) {
 	m.Requirements = append(m.Requirements, req)
-	return m.Approved, m.Feedback, m.Err
+	return m.Decision, m.Feedback, m.Err
 }
 
 // MockReviewer is a deterministic test double for Reviewer.
 type MockReviewer struct {
-	Approved bool
-	Feedback string
-	Err      error
-	Calls    []*Task // every task passed to Review, in order
+	Decisions []ReviewDecision // consumed in order; last one repeats
+	Feedback  string
+	Err       error
+	Calls     []*Task // every task passed to Review, in order
 }
 
-func (m *MockReviewer) Review(_ context.Context, task *Task) (bool, string, error) {
+func (m *MockReviewer) Review(_ context.Context, task *Task) (ReviewDecision, string, error) {
 	m.Calls = append(m.Calls, task)
-	return m.Approved, m.Feedback, m.Err
+	d := ReviewAbort
+	if len(m.Decisions) > 0 {
+		d = m.Decisions[0]
+		if len(m.Decisions) > 1 {
+			m.Decisions = m.Decisions[1:]
+		}
+	}
+	return d, m.Feedback, m.Err
 }

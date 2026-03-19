@@ -40,7 +40,7 @@ We split responsibilities into specialized personas with distinct system prompts
 
 | Agent | Role | Persona |
 |-------|------|---------|
-| **DevAgent** | Writer | Junior Go developer — writes fast, working code |
+| **DevAgent** | Writer + Architect | Junior Go developer — writes code fast; also proposes solution approaches |
 | **AuditorJudge** | Fixer | Senior Security Auditor — fixes ALL reported issues |
 | **DependencyAgent** | Librarian | Curates approved external packages |
 
@@ -60,14 +60,23 @@ This separation matters: the DevAgent's system prompt encourages speed and creat
 
 ### Phase 3: Human-in-the-Loop (HITL)
 
-Added three critical checkpoints where human expertise is required:
+Added critical checkpoints with **tri-state decisions** — not just approve/reject, but approve / revise / abort. Revision feeds human feedback back into the loop instead of halting.
 
 ```mermaid
 flowchart TD
     subgraph "Checkpoint 1: Pre-Flight"
-        REQ[Requirement] --> REVIEW1{Human Approves?}
-        REVIEW1 -->|Reject| HALT1[Pipeline Halted]
-        REVIEW1 -->|Approve| GEN[Code Generation]
+        REQ[Requirement] --> REVIEW1{Human Decision}
+        REVIEW1 -->|Abort| HALT1[Pipeline Halted]
+        REVIEW1 -->|Approve ± feedback| PROP[Solution Proposal]
+        REVIEW1 -->|Revise + feedback| PROP
+    end
+
+    subgraph "Proposal Review"
+        PROP --> AGENT_PROP[Agent Proposes Approach]
+        AGENT_PROP --> REVIEW_P{Human Decision}
+        REVIEW_P -->|Abort| HALT_P[Pipeline Halted]
+        REVIEW_P -->|Revise + feedback| AGENT_PROP
+        REVIEW_P -->|Approve| GEN[Code Generation<br/><i>enriched with proposal + feedback</i>]
     end
 
     subgraph "Build + Audit Loop"
@@ -76,22 +85,36 @@ flowchart TD
         FLIP -->|No| JUDGE[AuditorJudge Fix]
         JUDGE --> BUILD
         FLIP -->|Yes| REVIEW2{"Checkpoint 2:<br/>Human Escape Hatch"}
-        REVIEW2 -->|Feedback| JUDGE
-        REVIEW2 -->|Reject| HALT2[Pipeline Halted]
+        REVIEW2 -->|Approve/Revise + feedback| JUDGE
+        REVIEW2 -->|Abort| HALT2[Pipeline Halted]
     end
 
     subgraph "Checkpoint 3: Post-Success"
         BUILD -->|Clean| REVIEW3{Human Compliance Gate}
         REVIEW3 -->|Approve| SUCCESS[StatusSuccess]
-        REVIEW3 -->|Reject| HALT3[Pipeline Halted]
+        REVIEW3 -->|Revise + feedback| JUDGE_REV[Judge Fix with feedback]
+        JUDGE_REV --> BUILD
+        REVIEW3 -->|Abort| HALT3[Pipeline Halted]
     end
 ```
 
-**Why three checkpoints?**
+**The tri-state decision model:**
 
-1. **Requirement Sign-off** — Prevents wasted compute on misunderstood requirements.
-2. **Flip-Flop Escape Hatch** — When the judge oscillates between the same two broken states, a human can provide the nudge it needs (e.g., "use a `switch` statement instead of nested `if`").
-3. **Compliance Gate** — Even after all automated checks pass, a human reviews the final artifact before it's promoted to "success."
+```go
+type ReviewDecision int
+const (
+    ReviewApprove  // proceed; optional feedback enriches the next step
+    ReviewRevise   // incorporate feedback and try again (does NOT halt)
+    ReviewAbort    // halt pipeline immediately
+)
+```
+
+**Why four checkpoints?**
+
+1. **Requirement Sign-off** — Prevents wasted compute on misunderstood requirements. Human feedback enriches code generation.
+2. **Proposal Review** — Agent proposes a solution approach before writing code. Human can revise the approach iteratively until satisfied.
+3. **Flip-Flop Escape Hatch** — When the judge oscillates between the same two broken states, a human provides guidance that gets injected into the next repair.
+4. **Compliance Gate** — After automated checks pass, a human reviews the final artifact. **Revise** sends the code back through the judge with feedback (not a halt).
 
 ### Phase 4: Toolchain Grounding
 
@@ -238,16 +261,16 @@ import (
 
 ### C. The 7B Parameter Ceiling
 
-We hit the limit of what a 7B model (`codellama:7b-instruct`) can reason through. Simple syntax repairs? Excellent. Complex math parsers or multi-step algorithms? The model would loop endlessly.
+We hit the limit of what a 7B model (`codellama:7b-instruct`) could reason through. Simple syntax repairs? Excellent. Complex math parsers or multi-step algorithms? The model would loop endlessly. This led us to migrate to **Qwen2.5-Coder 14B**.
 
-| Task Complexity | 7B Performance | Notes |
-|----------------|----------------|-------|
-| Syntax repair | Excellent | Fix missing imports, braces, types |
-| Simple HTTP server | Good | Familiar pattern, lots of training data |
-| Math expression parser | Poor | Requires recursive descent reasoning |
-| Concurrent pipeline | Failed | Cannot reason about goroutine lifecycles |
+| Task Complexity | 7B Performance | 14B Performance | Notes |
+|----------------|----------------|-----------------|-------|
+| Syntax repair | Excellent | Excellent | Fix missing imports, braces, types |
+| Simple HTTP server | Good | Excellent | Familiar pattern, lots of training data |
+| Math expression parser | Poor | Good | 14B handles recursive descent |
+| Concurrent pipeline | Failed | Fair | Still needs human guidance at escape hatch |
 
-**Lesson:** Small models are great for **Syntax Repair**, but for **Architectural Logic**, you need either a bigger model (14B+) or Chain-of-Thought prompting that forces the model to plan before coding. The framework's value is that you can swap `codellama:7b` for `codellama:34b` or a cloud model by changing one flag — the reconciliation loop stays the same.
+**Lesson:** Small models are great for **Syntax Repair**, but for **Architectural Logic**, you need either a bigger model (14B+) or Chain-of-Thought prompting that forces the model to plan before coding. The framework's value is that you can swap models by changing one flag (`-model`) — the reconciliation loop stays the same. We also added a **Solution Proposal step** to force the model to plan before coding, which helps at any model size.
 
 ### D. The Approval Anchor
 
@@ -314,8 +337,13 @@ The key differences:
 ### Prerequisites
 
 - Go 1.21+
-- [Ollama](https://ollama.ai) with `codellama:7b-instruct` pulled
+- Any OpenAI-compatible inference server with Qwen2.5-Coder 14B (e.g. [Ollama](https://ollama.ai), vLLM, llama.cpp, LM Studio)
 - Optional: `gosec`, `staticcheck` on PATH
+
+```bash
+# If using Ollama:
+ollama pull qwen2.5-coder:14b
+```
 
 ### Quick Start
 
@@ -323,11 +351,14 @@ The key differences:
 # Mock mode (no LLM required — uses pre-canned responses)
 go run ./cmd/main.go
 
-# Live mode with CodeLlama
+# Live mode with Qwen2.5-Coder via Ollama
 go run ./cmd/main.go -live -requirement "Build a function that checks if a number is prime"
 
-# Full HITL experience
+# Full HITL experience (requirement review + proposal review + compliance gate)
 go run ./cmd/main.go -live -review -requirement "Build a REST API that returns Fibonacci numbers"
+
+# Custom model or server
+go run ./cmd/main.go -live -model "qwen2.5-coder:7b" -base-url "http://localhost:8080/v1" -requirement "..."
 
 # With timeout
 go run ./cmd/main.go -live -review -timeout 5m -requirement "Build a math expression parser"
@@ -353,14 +384,14 @@ langchain/
 │   ├── task.go                      # Task, Attempt, Status types
 │   ├── judge.go                     # JudgeAgent, CodeGenerator, TestGenerator interfaces
 │   ├── reviewer.go                  # HITL interfaces + TerminalReviewer
-│   ├── agent_dev.go                 # DevAgent (writer + test generator)
+│   ├── agent_dev.go                 # DevAgent (writer + test generator + solution proposer)
 │   ├── agent_auditor.go             # AuditorJudge (fixer)
 │   ├── agent_dependency.go          # DependencyGuard + AllowlistApprover
 │   ├── correction.go                # CorrectionPrompt builder
 │   ├── preprocessor.go              # ImportFixer (auto-injects stdlib imports)
 │   ├── security.go                  # Regex-based security scanner
 │   ├── structured_judge.go          # StructuredJudge + MockLLMBackend
-│   ├── llm_codellama.go             # Ollama/CodeLlama integration
+│   ├── llm_openai.go               # OpenAI-compatible backend (Qwen2.5-Coder via Ollama)
 │   ├── tools.go                     # AnalysisTool interface + Finding types
 │   ├── tool_govet.go                # go vet wrapper
 │   ├── tool_gosec.go                # gosec wrapper

@@ -27,7 +27,17 @@ Rules:
 - Do NOT include any explanation, prose, or markdown fences (no ` + "```" + `go).
 - Use only the Go standard library — no external test frameworks.`
 
-// DevAgent implements CodeGenerator and TestGenerator with the junior-dev persona.
+// proposalSystemPrompt is the persona for the solution-proposal step.
+// It asks the model to describe an approach without writing code.
+const proposalSystemPrompt = `You are a Go software architect. Given a requirement, propose a solution approach.
+Describe:
+- Key data structures and types
+- Main algorithm or design pattern
+- Standard library packages to use
+- Edge cases to handle
+Do NOT write code — describe the approach in 5-10 concise bullet points.`
+
+// DevAgent implements CodeGenerator, TestGenerator, and SolutionProposer with the junior-dev persona.
 // Its sole job is to produce an initial draft quickly; correctness and security
 // are verified (and repaired) by the AuditorJudge in subsequent loop iterations.
 type DevAgent struct {
@@ -41,6 +51,16 @@ func (d *DevAgent) GenerateInitialCode(ctx context.Context, requirement string) 
 		return "", fmt.Errorf("dev agent: %w", err)
 	}
 	return code, nil
+}
+
+// ProposeSolution satisfies SolutionProposer.
+// It asks the LLM to describe a solution approach before any code is written.
+func (d *DevAgent) ProposeSolution(ctx context.Context, requirement string) (string, error) {
+	proposal, err := d.LLM.Complete(ctx, proposalSystemPrompt, "REQUIREMENT:\n"+requirement+"\n\nPropose a solution approach.\n")
+	if err != nil {
+		return "", fmt.Errorf("dev agent proposal: %w", err)
+	}
+	return proposal, nil
 }
 
 // GenerateTests satisfies TestGenerator.

@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/khakiem/playground/langchain/pkg/orchestrator"
@@ -34,10 +33,11 @@ func main() {
 		"Build a simple HTTP server that listens on port 8080 and responds to GET /health with status 200 and body 'ok'",
 		"natural-language description of the Go program to generate",
 	)
-	live   := flag.Bool("live", false, "use CodeLlama via Ollama instead of the mock")
-	model  := flag.String("model", orchestrator.DefaultModel, "Ollama model tag")
+	live    := flag.Bool("live", false, "use Qwen2.5-Coder via Ollama instead of the mock")
+	model   := flag.String("model", orchestrator.DefaultModel, "model tag (e.g. qwen2.5-coder:14b)")
+	baseURL := flag.String("base-url", orchestrator.DefaultBaseURL, "OpenAI-compatible API base URL")
 	timeout := flag.Duration("timeout", 0, "wall-clock limit for the full pipeline (e.g. 5m); 0 = no limit")
-	review := flag.Bool("review", false, "pause before generation and ask a human to approve the requirement")
+	review  := flag.Bool("review", false, "pause before generation and ask a human to approve the requirement")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -52,34 +52,34 @@ func main() {
 
 	// ── Agents ───────────────────────────────────────────────────────────────
 	var (
-		judge     orchestrator.JudgeAgent
+		judge    orchestrator.JudgeAgent
 		generator orchestrator.CodeGenerator
-		testGen   orchestrator.TestGenerator     // nil = no oracle tests
-		depsAgent orchestrator.DependencyApprover // nil = stdlib-only
+		testGen   orchestrator.TestGenerator      // nil = no oracle tests
+		depsAgent orchestrator.DependencyApprover  // nil = stdlib-only
+		proposer  orchestrator.SolutionProposer    // nil = skip proposal step
 	)
 
 	maxRetries := 3
 
 	if *live {
-		backend, err := orchestrator.NewCodeLlamaBackend(
-			orchestrator.WithCodeLlamaModel(*model),
+		backend := orchestrator.NewOpenAIBackend(
+			orchestrator.WithModel(*model),
+			orchestrator.WithBaseURL(*baseURL),
 		)
-		if err != nil {
-			log.Fatalf("init CodeLlama backend: %v", err)
-		}
 		// Three-agent pipeline:
 		//   DevAgent           — junior dev, writes code fast
 		//   AuditorJudge       — senior auditor, fixes compiler + tool issues
-		//   LLMDependencyAgent — selects which allowlisted packages to use
+		//   AllowlistApprover  — enforces approved packages
 		devAgent := &orchestrator.DevAgent{LLM: backend}
 		generator = devAgent
-		testGen = devAgent // DevAgent implements both CodeGenerator and TestGenerator
+		testGen = devAgent  // DevAgent implements CodeGenerator, TestGenerator, and SolutionProposer
+		proposer = devAgent
 		judge = &orchestrator.AuditorJudge{LLM: backend}
 		depsAgent = &orchestrator.AllowlistApprover{
 			Allowlist: standardAllowlist,
 		}
 		maxRetries = 6
-		fmt.Printf("backend  : CodeLlama (%s) via Ollama\n", *model)
+		fmt.Printf("backend  : %s via %s\n", *model, *baseURL)
 		fmt.Printf("generator: DevAgent          (junior dev persona)\n")
 		fmt.Printf("tests    : DevAgent          (oracle test writer)\n")
 		fmt.Printf("judge    : AuditorJudge       (senior security auditor persona)\n")
@@ -124,6 +124,7 @@ func main() {
 		Judge:         judge,
 		Deps:          depsAgent,
 		TestGenerator: testGen,
+		Proposer:      proposer,
 		Preprocessors: []orchestrator.Preprocessor{orchestrator.ImportFixer{}},
 		Tools:         tools,
 		MaxRetries:    maxRetries,
@@ -134,6 +135,7 @@ func main() {
 	if *review {
 		tr := orchestrator.TerminalReviewer{}
 		loop.RequirementReviewer = tr
+		loop.ProposalReviewer = tr
 		loop.Reviewer = tr
 	}
 

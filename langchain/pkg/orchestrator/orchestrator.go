@@ -29,6 +29,8 @@ type ExecutionLoop struct {
 	Timeout             time.Duration        // wall-clock cap for the full pipeline; 0 = no limit
 	Logger              io.Writer            // progress log destination; nil = silent
 	RequirementReviewer RequirementReviewer  // checkpoint 1: human validates the requirement before generation
+	Proposer            SolutionProposer     // optional; proposes solution approach before code generation
+	ProposalReviewer    Reviewer             // optional; human reviews the proposed approach
 	Reviewer            Reviewer             // checkpoints 2 & 3: escape hatch + post-success compliance gate
 }
 
@@ -83,15 +85,24 @@ func (el *ExecutionLoop) RunFromRequirement(ctx context.Context, task *Task, req
 	// ── Checkpoint 1: Requirement validation ────────────────────────────────
 	if el.RequirementReviewer != nil {
 		el.logPhase("review", "→ awaiting requirement sign-off...")
-		approved, feedback, revErr := el.RequirementReviewer.ReviewRequirement(ctx, requirement)
+		decision, feedback, revErr := el.RequirementReviewer.ReviewRequirement(ctx, requirement)
 		if revErr != nil {
 			return fmt.Errorf("requirement reviewer error: %w", revErr)
 		}
-		if !approved {
-			el.logPhase("review", fmt.Sprintf("✗ rejected: %s", feedback))
-			return fmt.Errorf("requirement rejected by human reviewer: %s", feedback)
+		switch decision {
+		case ReviewAbort:
+			el.logPhase("review", fmt.Sprintf("✗ aborted: %s", feedback))
+			return fmt.Errorf("requirement aborted by human reviewer: %s", feedback)
+		case ReviewRevise:
+			// Human wants to refine — store feedback and continue.
+			task.HumanContext = feedback
+			el.logPhase("review", fmt.Sprintf("↻ revision requested — feedback captured"))
+		case ReviewApprove:
+			if feedback != "" {
+				task.HumanContext = feedback
+			}
+			el.logPhase("review", "✓ requirement approved")
 		}
-		el.logPhase("review", "✓ requirement approved")
 	}
 
 	if el.Deps != nil {
@@ -112,8 +123,68 @@ func (el *ExecutionLoop) RunFromRequirement(ctx context.Context, task *Task, req
 		}
 	}
 
+	// ── Solution proposal ──────────────────────────────────────────────────
+	if el.Proposer != nil {
+		el.logPhase("proposal", "requesting solution approach...")
+		proposal, propErr := el.Proposer.ProposeSolution(ctx, requirement)
+		if propErr != nil {
+			return fmt.Errorf("proposal generation: %w", propErr)
+		}
+		task.Proposal = proposal
+		el.logPhase("proposal", "✓ approach drafted")
+
+		// Let human review the proposal (approve / revise / abort).
+		if el.ProposalReviewer != nil {
+			for {
+				el.logPhase("proposal", "→ awaiting human review of approach...")
+				decision, feedback, revErr := el.ProposalReviewer.Review(ctx, task)
+				if revErr != nil {
+					return fmt.Errorf("proposal reviewer error: %w", revErr)
+				}
+				switch decision {
+				case ReviewAbort:
+					el.logPhase("proposal", fmt.Sprintf("✗ aborted: %s", feedback))
+					return fmt.Errorf("proposal aborted by human reviewer: %s", feedback)
+				case ReviewRevise:
+					// Re-generate proposal with human feedback.
+					el.logPhase("proposal", "↻ revising approach with feedback...")
+					revised, rErr := el.Proposer.ProposeSolution(ctx, requirement+"\n\nHUMAN FEEDBACK:\n"+feedback)
+					if rErr != nil {
+						return fmt.Errorf("proposal revision: %w", rErr)
+					}
+					task.Proposal = revised
+					if task.HumanContext == "" {
+						task.HumanContext = feedback
+					} else {
+						task.HumanContext += "\n" + feedback
+					}
+					continue // re-present for review
+				case ReviewApprove:
+					if feedback != "" {
+						if task.HumanContext == "" {
+							task.HumanContext = feedback
+						} else {
+							task.HumanContext += "\n" + feedback
+						}
+					}
+					el.logPhase("proposal", "✓ approach approved")
+				}
+				break
+			}
+		}
+	}
+
+	// Build enriched requirement with proposal and any human context.
+	enrichedReq := requirement
+	if task.Proposal != "" {
+		enrichedReq += "\n\nAPPROVED APPROACH:\n" + task.Proposal
+	}
+	if task.HumanContext != "" {
+		enrichedReq += "\n\nHUMAN FEEDBACK:\n" + task.HumanContext
+	}
+
 	el.logPhase("generate", "requesting initial code from DevAgent...")
-	if err := el.GenerateInitialCode(ctx, task, requirement); err != nil {
+	if err := el.GenerateInitialCode(ctx, task, enrichedReq); err != nil {
 		return err
 	}
 	el.logPhase("generate", fmt.Sprintf("✓ received %d line(s)", strings.Count(task.Code, "\n")+1))
@@ -216,26 +287,47 @@ func (el *ExecutionLoop) Run(ctx context.Context, task *Task) error {
 		}
 
 		if !req.HasIssues() {
-			task.Status = StatusSuccess
-
 			// ── Checkpoint 3: Post-success compliance gate ───────────────────
 			if el.Reviewer != nil {
 				task.Status = StatusPendingReview
 				el.logPhase("review", "→ awaiting compliance sign-off...")
-				approved, feedback, revErr := el.Reviewer.Review(ctx, task)
+				decision, feedback, revErr := el.Reviewer.Review(ctx, task)
 				if revErr != nil {
 					task.Status = StatusFailed
 					el.logResult(false, task.Attempts, "reviewer error")
 					return fmt.Errorf("post-success reviewer error: %w", revErr)
 				}
-				if !approved {
+				switch decision {
+				case ReviewAbort:
 					task.Status = StatusFailed
-					el.logPhase("review", fmt.Sprintf("✗ rejected: %s", feedback))
-					el.logResult(false, task.Attempts, "compliance review failed")
-					return fmt.Errorf("compliance reviewer rejected: %s", feedback)
+					el.logPhase("review", fmt.Sprintf("✗ aborted: %s", feedback))
+					el.logResult(false, task.Attempts, "compliance review aborted")
+					return fmt.Errorf("compliance reviewer aborted: %s", feedback)
+				case ReviewRevise:
+					// Human wants changes — send back through judge with feedback.
+					task.Status = StatusRunning
+					el.logPhase("review", fmt.Sprintf("↻ revision requested — sending back to judge"))
+					revReq := RepairRequest{
+						Code:         task.Code,
+						TestCode:     task.TestCode,
+						ApprovedDeps: task.ApprovedDeps,
+						History:      task.History,
+						HumanFeedback: feedback,
+					}
+					fixed, fixErr := el.Judge.Fix(ctx, revReq)
+					if fixErr != nil {
+						task.Status = StatusFailed
+						return fmt.Errorf("judge failed on human revision: %w", fixErr)
+					}
+					task.Code = fixed
+					task.Status = StatusRepaired
+					continue // re-enter build+audit loop
+				case ReviewApprove:
+					task.Status = StatusSuccess
+					el.logPhase("review", "✓ approved")
 				}
+			} else {
 				task.Status = StatusSuccess
-				el.logPhase("review", "✓ approved")
 			}
 
 			el.logResult(true, task.Attempts, "")
@@ -258,20 +350,21 @@ func (el *ExecutionLoop) Run(ctx context.Context, task *Task) error {
 		if el.Reviewer != nil && isFlipFlop(task.History) {
 			el.logPhase("review", "⚠ loop detected — awaiting human guidance...")
 			task.Status = StatusPendingReview
-			approved, feedback, revErr := el.Reviewer.Review(ctx, task)
+			decision, feedback, revErr := el.Reviewer.Review(ctx, task)
 			if revErr != nil {
 				task.Status = StatusFailed
 				el.logResult(false, task.Attempts, "reviewer error")
 				return fmt.Errorf("reviewer error on attempt %d: %w", task.Attempts, revErr)
 			}
-			if !approved {
+			if decision == ReviewAbort {
 				task.Status = StatusFailed
-				el.logPhase("review", fmt.Sprintf("✗ rejected: %s", feedback))
-				el.logResult(false, task.Attempts, "human reviewer rejected")
-				return fmt.Errorf("human reviewer rejected after %d attempt(s): %s", task.Attempts, feedback)
+				el.logPhase("review", fmt.Sprintf("✗ aborted: %s", feedback))
+				el.logResult(false, task.Attempts, "human reviewer aborted")
+				return fmt.Errorf("human reviewer aborted after %d attempt(s): %s", task.Attempts, feedback)
 			}
+			// ReviewApprove or ReviewRevise both inject feedback and continue.
 			task.Status = StatusRunning
-			el.logPhase("review", "✓ human approved — injecting feedback into next repair")
+			el.logPhase("review", "✓ human feedback captured — injecting into next repair")
 			req.HumanFeedback = feedback
 		}
 

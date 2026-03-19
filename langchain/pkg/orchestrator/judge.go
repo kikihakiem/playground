@@ -45,6 +45,14 @@ type TestGenerator interface {
 	GenerateTests(ctx context.Context, requirement, code string) (testCode string, err error)
 }
 
+// SolutionProposer generates a solution approach for a requirement before any
+// code is written. The proposal is reviewed by a human (via the Reviewer
+// interface) so the agent and human can align on architecture before committing
+// to code generation.
+type SolutionProposer interface {
+	ProposeSolution(ctx context.Context, requirement string) (proposal string, err error)
+}
+
 // ── MockJudge ────────────────────────────────────────────────────────────────
 
 // MockJudge is a deterministic test double implementing both JudgeAgent and

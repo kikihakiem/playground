@@ -12,9 +12,9 @@ import (
 // Checkpoint 1: RequirementReviewer (pre-flight)
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestHITL_RequirementReviewer_RejectsBeforeGeneration(t *testing.T) {
+func TestHITL_RequirementReviewer_AbortsBeforeGeneration(t *testing.T) {
 	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
-	rv := &orchestrator.MockRequirementReviewer{Approved: false, Feedback: "requirement violates policy"}
+	rv := &orchestrator.MockRequirementReviewer{Decision: orchestrator.ReviewAbort, Feedback: "requirement violates policy"}
 	loop := &orchestrator.ExecutionLoop{
 		Generator:           mj,
 		Judge:               mj,
@@ -25,14 +25,13 @@ func TestHITL_RequirementReviewer_RejectsBeforeGeneration(t *testing.T) {
 
 	err := loop.RunFromRequirement(context.Background(), task, "do something dangerous")
 	if err == nil {
-		t.Fatal("expected error when requirement is rejected")
+		t.Fatal("expected error when requirement is aborted")
 	}
 	if !strings.Contains(err.Error(), "violates policy") {
 		t.Errorf("error should contain reviewer feedback, got: %v", err)
 	}
-	// Generator must never be called.
 	if len(mj.GenerateRequirements) != 0 {
-		t.Errorf("generator should not be called when requirement is rejected, got %d call(s)", len(mj.GenerateRequirements))
+		t.Errorf("generator should not be called when requirement is aborted, got %d call(s)", len(mj.GenerateRequirements))
 	}
 	if task.Attempts != 0 {
 		t.Errorf("no build attempt should be made, got %d", task.Attempts)
@@ -41,7 +40,7 @@ func TestHITL_RequirementReviewer_RejectsBeforeGeneration(t *testing.T) {
 
 func TestHITL_RequirementReviewer_ApprovesAndPipelineContinues(t *testing.T) {
 	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
-	rv := &orchestrator.MockRequirementReviewer{Approved: true}
+	rv := &orchestrator.MockRequirementReviewer{Decision: orchestrator.ReviewApprove}
 	loop := &orchestrator.ExecutionLoop{
 		Generator:           mj,
 		Judge:               mj,
@@ -64,8 +63,63 @@ func TestHITL_RequirementReviewer_ApprovesAndPipelineContinues(t *testing.T) {
 	}
 }
 
+func TestHITL_RequirementReviewer_ApproveWithFeedbackEnrichesGeneration(t *testing.T) {
+	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
+	rv := &orchestrator.MockRequirementReviewer{
+		Decision: orchestrator.ReviewApprove,
+		Feedback: "make sure to handle edge cases",
+	}
+	loop := &orchestrator.ExecutionLoop{
+		Generator:           mj,
+		Judge:               mj,
+		RequirementReviewer: rv,
+		MaxRetries:          1,
+	}
+	task := &orchestrator.Task{ID: "hitl-req-fb"}
+
+	if err := loop.RunFromRequirement(context.Background(), task, "build a parser"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Human feedback should be stored on task.
+	if task.HumanContext != "make sure to handle edge cases" {
+		t.Errorf("want HumanContext set, got %q", task.HumanContext)
+	}
+	// The enriched requirement should contain the feedback.
+	if len(mj.GenerateRequirements) == 0 {
+		t.Fatal("generator should be called")
+	}
+	if !strings.Contains(mj.GenerateRequirements[0], "handle edge cases") {
+		t.Errorf("generator should receive enriched requirement with feedback, got %q", mj.GenerateRequirements[0])
+	}
+}
+
+func TestHITL_RequirementReviewer_ReviseStoresFeedback(t *testing.T) {
+	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
+	rv := &orchestrator.MockRequirementReviewer{
+		Decision: orchestrator.ReviewRevise,
+		Feedback: "also support subtraction",
+	}
+	loop := &orchestrator.ExecutionLoop{
+		Generator:           mj,
+		Judge:               mj,
+		RequirementReviewer: rv,
+		MaxRetries:          1,
+	}
+	task := &orchestrator.Task{ID: "hitl-req-rev"}
+
+	if err := loop.RunFromRequirement(context.Background(), task, "build a calculator"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if task.HumanContext != "also support subtraction" {
+		t.Errorf("want HumanContext from revise, got %q", task.HumanContext)
+	}
+	// The enriched requirement should contain the feedback.
+	if !strings.Contains(mj.GenerateRequirements[0], "also support subtraction") {
+		t.Errorf("generator should receive enriched requirement, got %q", mj.GenerateRequirements[0])
+	}
+}
+
 func TestHITL_RequirementReviewer_NilSkipsCheckpoint(t *testing.T) {
-	// No RequirementReviewer — pipeline should behave as before.
 	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
 	loop := &orchestrator.ExecutionLoop{Generator: mj, Judge: mj, MaxRetries: 1}
 	task := &orchestrator.Task{ID: "hitl-req-3"}
@@ -91,7 +145,7 @@ func TestHITL_RequirementStored_OnTask(t *testing.T) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 func TestHITL_PostSuccess_ReviewerApproves(t *testing.T) {
-	rv := &orchestrator.MockReviewer{Approved: true}
+	rv := &orchestrator.MockReviewer{Decisions: []orchestrator.ReviewDecision{orchestrator.ReviewApprove}}
 	loop := &orchestrator.ExecutionLoop{
 		Judge:      &orchestrator.MockJudge{},
 		Reviewer:   rv,
@@ -110,8 +164,8 @@ func TestHITL_PostSuccess_ReviewerApproves(t *testing.T) {
 	}
 }
 
-func TestHITL_PostSuccess_ReviewerRejects(t *testing.T) {
-	rv := &orchestrator.MockReviewer{Approved: false, Feedback: "weak hash function"}
+func TestHITL_PostSuccess_ReviewerAborts(t *testing.T) {
+	rv := &orchestrator.MockReviewer{Decisions: []orchestrator.ReviewDecision{orchestrator.ReviewAbort}, Feedback: "weak hash function"}
 	loop := &orchestrator.ExecutionLoop{
 		Judge:      &orchestrator.MockJudge{},
 		Reviewer:   rv,
@@ -121,7 +175,7 @@ func TestHITL_PostSuccess_ReviewerRejects(t *testing.T) {
 
 	err := loop.Run(context.Background(), task)
 	if err == nil {
-		t.Fatal("expected error when compliance reviewer rejects")
+		t.Fatal("expected error when compliance reviewer aborts")
 	}
 	if !strings.Contains(err.Error(), "weak hash function") {
 		t.Errorf("error should contain reviewer feedback, got: %v", err)
@@ -131,8 +185,42 @@ func TestHITL_PostSuccess_ReviewerRejects(t *testing.T) {
 	}
 }
 
+func TestHITL_PostSuccess_ReviewerRevises(t *testing.T) {
+	// First call: human says "revise" → judge fixes → re-enters loop → clean build.
+	// Second call: human approves.
+	rv := &orchestrator.MockReviewer{
+		Decisions: []orchestrator.ReviewDecision{orchestrator.ReviewRevise, orchestrator.ReviewApprove},
+		Feedback:  "add input validation",
+	}
+	judge := &orchestrator.MockJudge{Responses: []string{validCode}}
+	loop := &orchestrator.ExecutionLoop{
+		Judge:      judge,
+		Reviewer:   rv,
+		MaxRetries: 3,
+	}
+	task := &orchestrator.Task{ID: "hitl-post-rev", Code: validCode}
+
+	if err := loop.Run(context.Background(), task); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if task.Status != orchestrator.StatusSuccess {
+		t.Errorf("want success after revise+approve, got %q", task.Status)
+	}
+	// Reviewer should be called twice: first revise, then approve.
+	if len(rv.Calls) != 2 {
+		t.Errorf("reviewer should be called twice, got %d", len(rv.Calls))
+	}
+	// Judge should receive human feedback.
+	if len(judge.Calls) == 0 {
+		t.Fatal("judge should be called for revision")
+	}
+	if judge.Calls[0].HumanFeedback != "add input validation" {
+		t.Errorf("judge should receive human feedback, got %q", judge.Calls[0].HumanFeedback)
+	}
+}
+
 func TestHITL_PostSuccess_ReviewerSeesCode(t *testing.T) {
-	rv := &orchestrator.MockReviewer{Approved: true}
+	rv := &orchestrator.MockReviewer{Decisions: []orchestrator.ReviewDecision{orchestrator.ReviewApprove}}
 	loop := &orchestrator.ExecutionLoop{
 		Judge:      &orchestrator.MockJudge{},
 		Reviewer:   rv,
@@ -172,7 +260,7 @@ func TestHITL_PostSuccess_NilReviewerSkipsCheckpoint(t *testing.T) {
 // buildErrorJudge always returns a fixed code snippet that produces the same
 // build error on every attempt, simulating a stuck judge.
 type buildErrorJudge struct {
-	code string // broken code to echo back
+	code string
 }
 
 func (b *buildErrorJudge) Fix(_ context.Context, _ orchestrator.RepairRequest) (string, error) {
@@ -180,32 +268,28 @@ func (b *buildErrorJudge) Fix(_ context.Context, _ orchestrator.RepairRequest) (
 }
 
 func TestHITL_FlipFlop_ReviewerCalledOnStuckLoop(t *testing.T) {
-	// The judge always echoes back brokenCode → same compile error every time.
-	rv := &orchestrator.MockReviewer{Approved: false, Feedback: "cannot fix; please rewrite"}
+	rv := &orchestrator.MockReviewer{Decisions: []orchestrator.ReviewDecision{orchestrator.ReviewAbort}, Feedback: "cannot fix; please rewrite"}
 	loop := &orchestrator.ExecutionLoop{
 		Judge:      &buildErrorJudge{code: brokenCode},
 		Reviewer:   rv,
-		MaxRetries: 10, // would run 11 times without the escape hatch
+		MaxRetries: 10,
 	}
 	task := &orchestrator.Task{ID: "hitl-flip-1", Code: brokenCode}
 
 	err := loop.Run(context.Background(), task)
 	if err == nil {
-		t.Fatal("expected error when reviewer rejects flip-flop")
+		t.Fatal("expected error when reviewer aborts flip-flop")
 	}
 	if len(rv.Calls) == 0 {
 		t.Error("reviewer should be called when flip-flop is detected")
 	}
-	// Should halt well before MaxRetries=10 (flip-flop detected after attempt 2).
 	if task.Attempts >= 10 {
 		t.Errorf("escape hatch should have triggered early; got %d attempts", task.Attempts)
 	}
 }
 
 func TestHITL_FlipFlop_ApprovedWithFeedback_ContinuesPipeline(t *testing.T) {
-	// Reviewer approves on flip-flop with feedback.
-	// After injection the judge returns valid code, so the loop succeeds.
-	rv := &orchestrator.MockReviewer{Approved: true, Feedback: "use os.Stderr instead of fmt"}
+	rv := &orchestrator.MockReviewer{Decisions: []orchestrator.ReviewDecision{orchestrator.ReviewApprove, orchestrator.ReviewApprove}, Feedback: "use os.Stderr instead of fmt"}
 	judge := &orchestrator.MockJudge{Responses: []string{validCode}}
 	loop := &orchestrator.ExecutionLoop{
 		Judge:      judge,
@@ -222,12 +306,27 @@ func TestHITL_FlipFlop_ApprovedWithFeedback_ContinuesPipeline(t *testing.T) {
 	}
 }
 
+func TestHITL_FlipFlop_ReviseWithFeedback_ContinuesPipeline(t *testing.T) {
+	// ReviewRevise at flip-flop escape hatch should also inject feedback and continue.
+	rv := &orchestrator.MockReviewer{Decisions: []orchestrator.ReviewDecision{orchestrator.ReviewRevise, orchestrator.ReviewApprove}, Feedback: "try a different approach"}
+	judge := &orchestrator.MockJudge{Responses: []string{validCode}}
+	loop := &orchestrator.ExecutionLoop{
+		Judge:      judge,
+		Reviewer:   rv,
+		MaxRetries: 5,
+	}
+	task := &orchestrator.Task{ID: "hitl-flip-rev", Code: brokenCode}
+
+	if err := loop.Run(context.Background(), task); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if task.Status != orchestrator.StatusSuccess {
+		t.Errorf("want success, got %q", task.Status)
+	}
+}
+
 func TestHITL_FlipFlop_FeedbackInjectedIntoRepairRequest(t *testing.T) {
-	// Verify the human feedback actually reaches the judge's RepairRequest.
-	// Sequence: attempt 1 → judge echoes brokenCode (flip not yet), attempt 2 →
-	// same error → flip-flop detected → reviewer approves with feedback → judge
-	// called with HumanFeedback set → returns validCode → success.
-	rv := &orchestrator.MockReviewer{Approved: true, Feedback: "use sync.Mutex for thread safety"}
+	rv := &orchestrator.MockReviewer{Decisions: []orchestrator.ReviewDecision{orchestrator.ReviewApprove, orchestrator.ReviewApprove}, Feedback: "use sync.Mutex for thread safety"}
 	judge := &orchestrator.MockJudge{Responses: []string{brokenCode, validCode}}
 	loop := &orchestrator.ExecutionLoop{
 		Judge:      judge,
@@ -238,7 +337,6 @@ func TestHITL_FlipFlop_FeedbackInjectedIntoRepairRequest(t *testing.T) {
 
 	_ = loop.Run(context.Background(), task)
 
-	// Find the repair call that was made after the flip-flop reviewer approval.
 	found := false
 	for _, call := range judge.Calls {
 		if call.HumanFeedback == "use sync.Mutex for thread safety" {
@@ -252,10 +350,7 @@ func TestHITL_FlipFlop_FeedbackInjectedIntoRepairRequest(t *testing.T) {
 }
 
 func TestHITL_FlipFlop_NotTriggeredOnFirstAttempt(t *testing.T) {
-	// Only one failed attempt followed by a successful fix — no flip-flop.
-	// The Reviewer is called exactly once: at the post-success checkpoint, not
-	// at the flip-flop escape hatch (which requires ≥2 consecutive identical failures).
-	rv := &orchestrator.MockReviewer{Approved: true}
+	rv := &orchestrator.MockReviewer{Decisions: []orchestrator.ReviewDecision{orchestrator.ReviewApprove}}
 	loop := &orchestrator.ExecutionLoop{
 		Judge:      &orchestrator.MockJudge{Responses: []string{validCode}},
 		Reviewer:   rv,
@@ -267,7 +362,6 @@ func TestHITL_FlipFlop_NotTriggeredOnFirstAttempt(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// One call expected: the post-success compliance gate.
-	// Zero extra calls means the flip-flop hatch was not mistakenly triggered.
 	if len(rv.Calls) != 1 {
 		t.Errorf("reviewer should be called exactly once (post-success only), got %d call(s)", len(rv.Calls))
 	}
@@ -306,7 +400,6 @@ func TestHITL_HumanFeedback_OmittedWhenEmpty(t *testing.T) {
 	req := orchestrator.RepairRequest{
 		Code:        "package main\nfunc main() {}",
 		BuildErrors: []string{"main.go:1:1: undefined: x"},
-		// HumanFeedback intentionally empty
 	}
 	_, err := judge.Fix(context.Background(), req)
 	if err != nil {
