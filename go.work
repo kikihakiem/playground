@@ -3,5 +3,5 @@ go 1.25.5
 use (
 	./consistent-hashing
 	./encryption
-	./langchain
+	./ai-orchestrator
 )

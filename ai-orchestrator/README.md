@@ -376,7 +376,7 @@ go test ./pkg/orchestrator/ -run Oracle # Only test oracle tests
 ### Project Structure
 
 ```
-langchain/
+ai-orchestrator/
 ├── cmd/
 │   └── main.go                      # CLI entry point
 ├── pkg/orchestrator/

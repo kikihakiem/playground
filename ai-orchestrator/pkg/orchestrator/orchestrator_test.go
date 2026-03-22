@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/khakiem/playground/langchain/pkg/orchestrator"
+	"github.com/khakiem/playground/ai-orchestrator/pkg/orchestrator"
 )
 
 const validCode = `package main
@@ -319,8 +319,8 @@ type fakeLinterTool struct {
 	findings []orchestrator.Finding
 }
 
-func (f *fakeLinterTool) Name() string      { return "fake-linter" }
-func (f *fakeLinterTool) Available() bool   { return true }
+func (f *fakeLinterTool) Name() string    { return "fake-linter" }
+func (f *fakeLinterTool) Available() bool { return true }
 func (f *fakeLinterTool) Run(_ context.Context, _ string) ([]orchestrator.Finding, error) {
 	return f.findings, nil
 }

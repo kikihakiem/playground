@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/khakiem/playground/langchain/pkg/orchestrator"
+	"github.com/khakiem/playground/ai-orchestrator/pkg/orchestrator"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -76,7 +76,6 @@ func TestSecurityAudit_EmptyStringNotFlagged(t *testing.T) {
 func TestBuildCorrectionPrompt_ParsesLineAndColumn(t *testing.T) {
 	errors := []string{"main.go:5:2: undefined: fmt"}
 	cp := orchestrator.BuildCorrectionPrompt("package main\n\nfunc main() {\n\tfmt.Println()\n}\n", errors, nil, nil)
-
 
 	if len(cp.Annotations) != 1 {
 		t.Fatalf("expected 1 annotation, got %d", len(cp.Annotations))
@@ -154,8 +153,10 @@ func TestCorrectionPrompt_Format_AnnotatesCorrectLine(t *testing.T) {
 
 func TestCorrectionPrompt_Format_IncludesSnippet(t *testing.T) {
 	findings := []orchestrator.Finding{
-		{Tool: "gosec", File: "main.go", Line: 3, Severity: orchestrator.SeverityHigh,
-			Rule: "G101", Message: "hardcoded cred", Snippet: `const apiKey = "SECRET"`},
+		{
+			Tool: "gosec", File: "main.go", Line: 3, Severity: orchestrator.SeverityHigh,
+			Rule: "G101", Message: "hardcoded cred", Snippet: `const apiKey = "SECRET"`,
+		},
 	}
 	cp := orchestrator.BuildCorrectionPrompt("", nil, findings, nil)
 	if !strings.Contains(cp.Format(), `const apiKey = "SECRET"`) {
@@ -199,8 +200,10 @@ func TestStructuredJudge_Fix_IncludesToolFindingsInPrompt(t *testing.T) {
 	req := orchestrator.RepairRequest{
 		Code: "package main\nconst password = \"s3cr3t\"\nfunc main() {}",
 		Findings: []orchestrator.Finding{
-			{Tool: "gosec", File: "main.go", Line: 2, Severity: orchestrator.SeverityHigh,
-				Rule: "G101", Message: "Potential hardcoded credentials", Snippet: `const password = "s3cr3t"`},
+			{
+				Tool: "gosec", File: "main.go", Line: 2, Severity: orchestrator.SeverityHigh,
+				Rule: "G101", Message: "Potential hardcoded credentials", Snippet: `const password = "s3cr3t"`,
+			},
 		},
 	}
 	_, err := judge.Fix(context.Background(), req)
@@ -291,8 +294,10 @@ func TestAuditorJudge_UserPromptContainsFindings(t *testing.T) {
 	req := orchestrator.RepairRequest{
 		Code: "package main\nconst password = \"s3cr3t\"\nfunc main() {}",
 		Findings: []orchestrator.Finding{
-			{Tool: "gosec", File: "main.go", Line: 2, Severity: orchestrator.SeverityHigh,
-				Rule: "G101", Message: "hardcoded credential", Snippet: `const password = "s3cr3t"`},
+			{
+				Tool: "gosec", File: "main.go", Line: 2, Severity: orchestrator.SeverityHigh,
+				Rule: "G101", Message: "hardcoded credential", Snippet: `const password = "s3cr3t"`,
+			},
 		},
 	}
 	_, err := judge.Fix(context.Background(), req)

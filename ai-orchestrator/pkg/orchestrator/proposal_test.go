@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/khakiem/playground/langchain/pkg/orchestrator"
+	"github.com/khakiem/playground/ai-orchestrator/pkg/orchestrator"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -34,10 +34,10 @@ func TestProposal_StoredOnTask(t *testing.T) {
 	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
 	prop := &mockProposer{Proposals: []string{"Use a map for lookups"}}
 	loop := &orchestrator.ExecutionLoop{
-		Generator:  mj,
-		Judge:      mj,
-		Proposer:   prop,
-		BuildFn: fakeBuild, MaxRetries: 0,
+		Generator: mj,
+		Judge:     mj,
+		Proposer:  prop,
+		BuildFn:   fakeBuild, MaxRetries: 0,
 	}
 	task := &orchestrator.Task{ID: "prop-1"}
 
@@ -53,10 +53,10 @@ func TestProposal_EnrichesGeneration(t *testing.T) {
 	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
 	prop := &mockProposer{Proposals: []string{"Use net/http with gorilla/mux"}}
 	loop := &orchestrator.ExecutionLoop{
-		Generator:  mj,
-		Judge:      mj,
-		Proposer:   prop,
-		BuildFn: fakeBuild, MaxRetries: 0,
+		Generator: mj,
+		Judge:     mj,
+		Proposer:  prop,
+		BuildFn:   fakeBuild, MaxRetries: 0,
 	}
 	task := &orchestrator.Task{ID: "prop-2"}
 
@@ -78,9 +78,9 @@ func TestProposal_EnrichesGeneration(t *testing.T) {
 func TestProposal_NilProposerSkips(t *testing.T) {
 	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
 	loop := &orchestrator.ExecutionLoop{
-		Generator:  mj,
-		Judge:      mj,
-		BuildFn: fakeBuild, MaxRetries: 0,
+		Generator: mj,
+		Judge:     mj,
+		BuildFn:   fakeBuild, MaxRetries: 0,
 	}
 	task := &orchestrator.Task{ID: "prop-3"}
 
@@ -104,7 +104,7 @@ func TestProposal_ReviewerSeesProposal(t *testing.T) {
 		Judge:               mj,
 		Proposer:            prop,
 		RequirementReviewer: rv,
-		BuildFn: fakeBuild, MaxRetries:          0,
+		BuildFn:             fakeBuild, MaxRetries: 0,
 	}
 	task := &orchestrator.Task{ID: "prop-4"}
 
@@ -136,7 +136,7 @@ func TestProposal_ReviewerAborts(t *testing.T) {
 		Judge:               mj,
 		Proposer:            prop,
 		RequirementReviewer: rv,
-		BuildFn: fakeBuild, MaxRetries:          0,
+		BuildFn:             fakeBuild, MaxRetries: 0,
 	}
 	task := &orchestrator.Task{ID: "prop-5"}
 
@@ -165,7 +165,7 @@ func TestProposal_ReviewerRevises_ReGeneratesProposal(t *testing.T) {
 		Judge:               mj,
 		Proposer:            prop,
 		RequirementReviewer: rv,
-		BuildFn: fakeBuild, MaxRetries:          0,
+		BuildFn:             fakeBuild, MaxRetries: 0,
 	}
 	task := &orchestrator.Task{ID: "prop-6"}
 
@@ -204,4 +204,3 @@ func TestProposal_DevAgent_ImplementsSolutionProposer(t *testing.T) {
 		t.Errorf("prompt should contain the requirement, got %q", llm.Prompts[0])
 	}
 }
-

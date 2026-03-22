@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/khakiem/playground/langchain/pkg/orchestrator"
+	"github.com/khakiem/playground/ai-orchestrator/pkg/orchestrator"
 )
 
 // standardAllowlist is the set of external packages the DevAgent is allowed to
@@ -33,11 +33,11 @@ func main() {
 		"Build a simple HTTP server that listens on port 8080 and responds to GET /health with status 200 and body 'ok'",
 		"natural-language description of the Go program to generate",
 	)
-	live    := flag.Bool("live", false, "use Qwen2.5-Coder via Ollama instead of the mock")
-	model   := flag.String("model", orchestrator.DefaultModel, "model tag (e.g. qwen2.5-coder:14b)")
+	live := flag.Bool("live", false, "use Qwen2.5-Coder via Ollama instead of the mock")
+	model := flag.String("model", orchestrator.DefaultModel, "model tag (e.g. qwen2.5-coder:14b)")
 	baseURL := flag.String("base-url", orchestrator.DefaultBaseURL, "OpenAI-compatible API base URL")
 	timeout := flag.Duration("timeout", 0, "wall-clock limit for the full pipeline (e.g. 5m); 0 = no limit")
-	review  := flag.Bool("review", false, "pause before generation and ask a human to approve the requirement")
+	review := flag.Bool("review", false, "pause before generation and ask a human to approve the requirement")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -52,11 +52,11 @@ func main() {
 
 	// ── Agents ───────────────────────────────────────────────────────────────
 	var (
-		judge    orchestrator.JudgeAgent
+		judge     orchestrator.JudgeAgent
 		generator orchestrator.CodeGenerator
 		testGen   orchestrator.TestGenerator      // nil = no oracle tests
-		depsAgent orchestrator.DependencyApprover  // nil = stdlib-only
-		proposer  orchestrator.SolutionProposer    // nil = skip proposal step
+		depsAgent orchestrator.DependencyApprover // nil = stdlib-only
+		proposer  orchestrator.SolutionProposer   // nil = skip proposal step
 	)
 
 	maxRetries := 3
@@ -72,7 +72,7 @@ func main() {
 		//   AllowlistApprover  — enforces approved packages
 		devAgent := &orchestrator.DevAgent{LLM: backend}
 		generator = devAgent
-		testGen = devAgent  // DevAgent implements CodeGenerator, TestGenerator, and SolutionProposer
+		testGen = devAgent // DevAgent implements CodeGenerator, TestGenerator, and SolutionProposer
 		proposer = devAgent
 		judge = &orchestrator.AuditorJudge{LLM: backend}
 		depsAgent = &orchestrator.AllowlistApprover{
