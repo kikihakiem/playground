@@ -28,7 +28,7 @@ import (
 type Pipeline struct {
 	LLM     llms.Model
 	Store   *vs.InMemory
-	Loader  *loader.GoLoader
+	Loader  *loader.RepoLoader
 	Splitter textsplitter.TextSplitter
 
 	NumDocs int // number of chunks to retrieve per query (default: 4)
@@ -75,11 +75,19 @@ func (p *Pipeline) Index(ctx context.Context, repoPath string) error {
 	// from llm_openai.go or related to AI models.
 	for i, c := range chunks {
 		src, _ := c.Metadata["source"].(string)
-		pkg, _ := c.Metadata["package"].(string)
-		if src != "" {
-			preamble := fmt.Sprintf("// File: %s  Package: %s\n", src, pkg)
-			chunks[i].PageContent = preamble + c.PageContent
+		if src == "" {
+			continue
 		}
+		fileType, _ := c.Metadata["type"].(string)
+		pkg, _ := c.Metadata["package"].(string)
+
+		var preamble string
+		if fileType == ".go" && pkg != "" {
+			preamble = fmt.Sprintf("// File: %s  Package: %s\n", src, pkg)
+		} else {
+			preamble = fmt.Sprintf("[File: %s]\n", src)
+		}
+		chunks[i].PageContent = preamble + c.PageContent
 	}
 
 	// Collect unique packages for stats.

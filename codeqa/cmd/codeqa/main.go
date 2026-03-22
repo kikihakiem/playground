@@ -62,7 +62,7 @@ func main() {
 	pipeline := &rag.Pipeline{
 		LLM:   llm,
 		Store: store,
-		Loader: &loader.GoLoader{
+		Loader: &loader.RepoLoader{
 			SkipTests:  *skipTests,
 			SkipVendor: true,
 		},
