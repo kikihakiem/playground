@@ -12,6 +12,7 @@ import (
 	"github.com/tmc/langchaingo/chains"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/memory"
+	"github.com/tmc/langchaingo/prompts"
 	"github.com/tmc/langchaingo/schema"
 	"github.com/tmc/langchaingo/textsplitter"
 	"github.com/tmc/langchaingo/vectorstores"
@@ -133,14 +134,47 @@ func (p *Pipeline) QueryLoop(ctx context.Context) error {
 	retriever := vectorstores.ToRetriever(p.Store, numDocs)
 	conversationMemory := memory.NewConversationBuffer(
 		memory.WithReturnMessages(true),
+		// Pin input/output keys so SaveContext knows which values to store.
+		// Without these, SaveContext fails with "multiple keys and no input key set"
+		// because the chain's output map contains both "text" and "source_documents".
+		memory.WithInputKey("question"),
+		memory.WithOutputKey("text"),
 	)
-	chain := chains.NewConversationalRetrievalQAFromLLM(
-		p.LLM,
+
+	p.logf("[debug] memory input_key=%q output_key=%q memory_key=%q\n",
+		"question", "text", conversationMemory.GetMemoryKey(ctx))
+
+	// Custom code-aware QA prompt. The default langchaingo prompt says
+	// "if you don't know, say I don't know" which causes the model to bail
+	// on code questions. This prompt frames the context as Go source code
+	// and instructs the model to analyze it.
+	codeQAPrompt := prompts.NewPromptTemplate(
+		`You are a Go code analyst. You are given fragments of Go source code and a question about them.
+Analyze the code carefully and answer the question based on what you can see in the code.
+Reference specific functions, types, variables, and packages when relevant.
+If the code fragments don't contain enough information, say what you CAN determine and what's missing.
+
+Go source code:
+{{.context}}
+
+Question: {{.question}}
+Answer:`,
+		[]string{"context", "question"},
+	)
+	qaChain := chains.NewStuffDocuments(chains.NewLLMChain(p.LLM, codeQAPrompt))
+	condenseChain := chains.LoadCondenseQuestionGenerator(p.LLM)
+
+	chain := chains.NewConversationalRetrievalQA(
+		qaChain,
+		condenseChain,
 		retriever,
 		conversationMemory,
 	)
-	// Return source documents so we can show them to the user.
 	chain.ReturnSourceDocuments = true
+
+	p.logf("[debug] chain input_key=%q return_source_documents=%v\n",
+		chain.InputKey, chain.ReturnSourceDocuments)
+	p.logf("[debug] using custom code-aware QA prompt\n")
 
 	fmt.Fprintln(os.Stderr, "Ready. Type your question (or /quit to exit).")
 	fmt.Fprintln(os.Stderr)
@@ -225,12 +259,15 @@ func (p *Pipeline) query(
 	chain chains.ConversationalRetrievalQA,
 	question string,
 ) (string, []schema.Document, error) {
-	result, err := chains.Call(ctx, chain, map[string]any{
-		"question": question,
-	})
+	input := map[string]any{"question": question}
+	p.logf("[debug] chain.Call input keys: %v\n", mapKeys(input))
+
+	result, err := chains.Call(ctx, chain, input)
 	if err != nil {
-		return "", nil, err
+		return "", nil, fmt.Errorf("chain call: %w", err)
 	}
+
+	p.logf("[debug] chain.Call output keys: %v\n", mapKeys(result))
 
 	answer, _ := result["text"].(string)
 
@@ -238,10 +275,21 @@ func (p *Pipeline) query(
 	if raw, ok := result["source_documents"]; ok {
 		if docs, ok := raw.([]schema.Document); ok {
 			sources = docs
+			p.logf("[debug] retrieved %d source document(s)\n", len(sources))
 		}
 	}
 
 	return strings.TrimSpace(answer), sources, nil
+}
+
+// mapKeys returns the keys of a map for debug logging.
+func mapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // lineScanner returns a bufio.Scanner for reading lines from r.
