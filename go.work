@@ -1,6 +1,7 @@
-go 1.23.2
+go 1.25.5
 
 use (
 	./consistent-hashing
 	./encryption
+	./ai-orchestrator
 )
