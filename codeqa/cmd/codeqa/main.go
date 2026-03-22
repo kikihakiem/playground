@@ -19,7 +19,7 @@ import (
 func main() {
 	repo := flag.String("repo", ".", "path to Go repository to index")
 	model := flag.String("model", "qwen2.5-coder:14b", "Ollama model for generation")
-	embedModel := flag.String("embed-model", "nomic-embed-text", "Ollama model for embeddings")
+	embedModel := flag.String("embed-model", "qwen3-embedding:0.6b", "Ollama model for embeddings")
 	server := flag.String("server", "http://localhost:11434", "Ollama server URL")
 	chunks := flag.Int("chunks", 8, "number of chunks to retrieve per query")
 	noHITL := flag.Bool("no-hitl", false, "disable human-in-the-loop checkpoints")
