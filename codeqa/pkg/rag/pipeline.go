@@ -69,6 +69,19 @@ func (p *Pipeline) Index(ctx context.Context, repoPath string) error {
 		return fmt.Errorf("split documents: %w", err)
 	}
 
+	// 2b. Enrich each chunk with a metadata preamble so the embedding model
+	// captures file/package context. Without this, a chunk containing
+	// `const DefaultModel = "qwen2.5-coder:14b"` has no signal that it's
+	// from llm_openai.go or related to AI models.
+	for i, c := range chunks {
+		src, _ := c.Metadata["source"].(string)
+		pkg, _ := c.Metadata["package"].(string)
+		if src != "" {
+			preamble := fmt.Sprintf("// File: %s  Package: %s\n", src, pkg)
+			chunks[i].PageContent = preamble + c.PageContent
+		}
+	}
+
 	// Collect unique packages for stats.
 	pkgSet := make(map[string]struct{})
 	for _, d := range docs {
