@@ -60,7 +60,7 @@ type AnswerReviewer interface {
 }
 
 // TerminalReviewer implements both IndexReviewer and AnswerReviewer via
-// interactive terminal prompts (same tri-state pattern as the langchain/ project).
+// interactive terminal prompts (same tri-state pattern as the ai-orchestrator/ project).
 type TerminalReviewer struct{}
 
 // ReviewIndex displays index stats and asks the human to proceed.

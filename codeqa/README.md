@@ -46,17 +46,17 @@ ollama pull nomic-embed-text      # embeddings
 ## Usage
 
 ```bash
-# Index the sibling langchain/ project and start interactive Q&A
-go run ./codeqa/cmd/codeqa -repo ./langchain
+# Index the sibling ai-orchestrator/ project and start interactive Q&A
+go run ./codeqa/cmd/codeqa -repo ./ai-orchestrator
 
 # Use a different model
-go run ./codeqa/cmd/codeqa -repo ./langchain -model llama3:8b
+go run ./codeqa/cmd/codeqa -repo ./ai-orchestrator -model llama3:8b
 
 # Disable HITL checkpoints for faster iteration
-go run ./codeqa/cmd/codeqa -repo ./langchain -no-hitl
+go run ./codeqa/cmd/codeqa -repo ./ai-orchestrator -no-hitl
 
 # Skip test files, adjust chunk settings
-go run ./codeqa/cmd/codeqa -repo ./langchain -skip-tests -chunk-size 2000 -chunk-overlap 300
+go run ./codeqa/cmd/codeqa -repo ./ai-orchestrator -skip-tests -chunk-size 2000 -chunk-overlap 300
 ```
 
 ### Flags
@@ -102,4 +102,4 @@ Both checkpoints use a tri-state decision model:
 - **Revise** — adjust and retry (re-configure indexing / rephrase the question)
 - **Abort** — stop immediately
 
-This mirrors the pattern used in the sibling `langchain/` agentic project, where the same tri-state model gates requirement review, flip-flop escape hatches, and post-success compliance review.
+This mirrors the pattern used in the sibling `ai-orchestrator/` agentic project, where the same tri-state model gates requirement review, flip-flop escape hatches, and post-success compliance review.
