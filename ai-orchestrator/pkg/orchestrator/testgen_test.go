@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/khakiem/playground/langchain/pkg/orchestrator"
+	"github.com/khakiem/playground/ai-orchestrator/pkg/orchestrator"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -216,8 +216,8 @@ func TestRunFromRequirement_TestGeneratorCalled(t *testing.T) {
 func TestRunFromRequirement_NilTestGenerator_SkipsOracle(t *testing.T) {
 	mj := &orchestrator.MockJudge{GeneratedCodes: []string{validCode}}
 	loop := &orchestrator.ExecutionLoop{
-		Generator: mj,
-		Judge:     mj,
+		Generator:  mj,
+		Judge:      mj,
 		MaxRetries: 0,
 	}
 	task := &orchestrator.Task{ID: "tg-nil"}

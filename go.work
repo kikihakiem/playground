@@ -4,5 +4,5 @@ use (
 	./codeqa
 	./consistent-hashing
 	./encryption
-	./langchain
+	./ai-orchestrator
 )

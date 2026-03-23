@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/khakiem/playground/langchain/pkg/orchestrator"
+	"github.com/khakiem/playground/ai-orchestrator/pkg/orchestrator"
 )
 
 var testAllowlist = []orchestrator.ApprovedDep{
